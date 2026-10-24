@@ -130,7 +130,8 @@ The engine is tested with example-based unit tests for each rule, plus seeded ra
 - Timelines are horizontal rows; slots are columns that scroll left to right. Markers render as full-height vertical bars in their own column.
 - The timeline header column on the left is pinned, and so is the marker/slot header strip on top.
 - 2D scrolling plus pinch zoom, which scales slot width and row height. Only the visible cells are composed, using a custom 2D `LazyLayout`. Portrait and landscape share the same layout logic.
-- Tag filters hide items visually but never affect structure. Collapse looks at all timelines, including hidden ones.
+- Tag filters never affect structure: an item carrying any hidden tag is drawn faded (about 20% opacity) and stays interactive. Collapse looks at all timelines, including hidden ones.
+- The board top bar keeps only undo and redo visible. Add marker, select, filter and timelines live in a "More" menu, because six icons left no room for the view switcher on a phone.
 
 ### Drag and drop
 - Gesture: `detectDragGesturesAfterLongPress`. The picked item lifts as an overlay that follows the pointer.

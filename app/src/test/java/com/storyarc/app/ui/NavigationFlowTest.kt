@@ -26,7 +26,8 @@ class NavigationFlowTest {
         compose.onNodeWithText("Create").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Main")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Main").performClick()
-        compose.onNodeWithContentDescription("Timelines").performClick()
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Timelines").performClick()
         compose.onNodeWithText("Add timeline", useUnmergedTree = true).performClick()
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Mara")
         compose.onNodeWithText("Add").performClick()
@@ -44,13 +45,15 @@ class NavigationFlowTest {
         compose.onNodeWithText("Create").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Main")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Main").performClick()
-        compose.onNodeWithContentDescription("Timelines").performClick()
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Timelines").performClick()
         compose.onNodeWithText("Add timeline", useUnmergedTree = true).performClick()
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Mara")
         compose.onNodeWithText("Add").performClick()
         compose.onNodeWithContentDescription("Back").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Mara")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription("Add marker").performClick()
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Add marker").performClick()
         compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Day")
     }
 
@@ -61,7 +64,8 @@ class NavigationFlowTest {
         compose.onNodeWithText("Create").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Main")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Main").performClick()
-        compose.onNodeWithContentDescription("Timelines").performClick()
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Timelines").performClick()
         compose.onNodeWithText("Add timeline", useUnmergedTree = true).performClick()
         compose.onNode(hasSetTextAction()).performTextInput("Mara")
         compose.onNodeWithText("Add").performClick()

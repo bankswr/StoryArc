@@ -7,6 +7,7 @@ import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.board.Drop
 import com.storyarc.board.Item
 import com.storyarc.board.groupingProblem
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -124,7 +125,7 @@ class StoryRepositoryTest {
         val t = repo.addTimeline(v, "A")
         val n = repo.addNode(v, "", Drop.Onto(t, 0))
         val node = repo.projects.node(n)!!
-        for (text in listOf("H", "He", "Hello")) repo.updateNode(node.copy(text = text))
+        for (text in listOf("H", "He", "Hello")) repo.setNodeText(node.id, text)
         repo.undo(p)
         assertEquals("", repo.projects.node(n)?.text)
         repo.redo(p)
@@ -215,7 +216,7 @@ class ViewsTest {
         // Moving in one view leaves the other alone; editing text shows in both.
         repo.move(reading, Item.Node(b), Drop.Between(t, 1))
         assertEquals(2, repo.board.placements(main).single { it.nodeId == b }.slot)
-        repo.updateNode(repo.projects.node(a)!!.copy(text = "A!"))
+        repo.setNodeText(a, "A!")
         assertEquals("A!", repo.board.nodesInView(reading).single { it.id == a }.text)
 
         // Removing from one view keeps the node; removing from the last deletes it.
@@ -243,5 +244,52 @@ class ViewsTest {
         repo.undo(p)
         assertEquals("only here", repo.projects.node(n)?.text)
         assertEquals(2, repo.projects.views(p).size)
+    }
+}
+
+@RunWith(AndroidJUnit4::class)
+class TagsTest {
+    private lateinit var db: StoryDatabase
+    private lateinit var repo: StoryRepository
+    private var ids = 0
+
+    @Before
+    fun setUp() {
+        db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), StoryDatabase::class.java)
+            .allowMainThreadQueries().build()
+        repo = StoryRepository(db, clock = { 1000L }, newId = { "id${ids++}" })
+    }
+
+    @After
+    fun tearDown() = db.close()
+
+    @Test
+    fun tagsOrderColorsAndDeletion() = runBlocking {
+        val p = repo.createProject("Saga")
+        val v = repo.projects.views(p).single().id
+        val t = repo.addTimeline(v, "A")
+        val n = repo.addNode(v, "x", Drop.Onto(t, 0))
+        val world = repo.projects.observeWorlds(p).first().single().id
+        val scene = repo.createTag(p, "Scene", color = 0xFF0000FF.toInt())
+        val magic = repo.createTag(p, "Magic", color = 0xFF00FF00.toInt(), worldId = world)
+        assertEquals(setOf("Scene", "Magic"), repo.tags.projectTags(p).map { it.name }.toSet())
+
+        repo.setTags(p, StoryRepository.TagTarget.Node(n), listOf(magic, scene))
+        assertEquals(listOf(magic, scene), repo.tags.nodeTags(n).map { it.tagId })
+        repo.setTags(p, StoryRepository.TagTarget.Node(n), listOf(scene, magic))
+        assertEquals(listOf(scene, magic), repo.tags.nodeTags(n).map { it.tagId })
+
+        repo.setColor(p, StoryRepository.ColorTarget.Node(n), 0xFFFF0000.toInt())
+        assertEquals(0xFFFF0000.toInt(), repo.projects.node(n)?.color)
+
+        repo.setTagHidden(v, scene, true)
+        assertEquals(listOf(scene), repo.board.hiddenTags(v).map { it.tagId })
+
+        repo.deleteTag(p, scene)
+        assertEquals(listOf(magic), repo.tags.nodeTags(n).map { it.tagId })
+        assertTrue(repo.board.hiddenTags(v).isEmpty())
+        repo.undo(p)
+        assertEquals(listOf(scene, magic), repo.tags.nodeTags(n).map { it.tagId })
+        assertEquals(1, repo.board.hiddenTags(v).size)
     }
 }

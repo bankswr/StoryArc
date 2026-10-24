@@ -9,6 +9,13 @@ import com.storyarc.app.data.db.ProjectWorldEntity
 import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.app.data.db.TimelineEntity
 import com.storyarc.app.data.db.ViewEntity
+import com.storyarc.app.data.db.GroupTagEntity
+import com.storyarc.app.data.db.MarkerTagEntity
+import com.storyarc.app.data.db.NodeTagEntity
+import com.storyarc.app.data.db.NoteTagEntity
+import com.storyarc.app.data.db.TagEntity
+import com.storyarc.app.data.db.ViewHiddenTagEntity
+import com.storyarc.app.domain.undo.diffRows
 import com.storyarc.app.data.db.WorldEntity
 import com.storyarc.app.data.db.deleteAny
 import com.storyarc.app.data.db.rowKey
@@ -46,6 +53,7 @@ class StoryRepository(
     private val rows = db.rows()
     val projects = db.projects()
     val board = db.board()
+    val tags = db.tags()
 
     private val lock = Mutex()
     private val undoManagers = HashMap<String, UndoManager>()
@@ -137,9 +145,9 @@ class StoryRepository(
         t.id
     }
 
-    suspend fun updateTimeline(timeline: TimelineEntity) = lock.withLock {
-        val old = requireNotNull(projects.timeline(timeline.id))
-        perform(old.projectId, ChangeSet("Edit timeline", listOf(Change(old, timeline))), "timeline:${timeline.id}")
+    suspend fun renameTimeline(timelineId: String, name: String) = lock.withLock {
+        val old = requireNotNull(projects.timeline(timelineId))
+        perform(old.projectId, ChangeSet("Rename timeline", listOf(Change(old, old.copy(name = name)))), "timeline:$timelineId")
     }
 
     suspend fun moveTimeline(viewId: String, timelineId: String, toIndex: Int) = lock.withLock {
@@ -173,9 +181,10 @@ class StoryRepository(
         node.id
     }
 
-    suspend fun updateNode(node: NodeEntity) = lock.withLock {
-        val old = requireNotNull(projects.node(node.id))
-        perform(old.projectId, ChangeSet("Edit node", listOf(Change(old, node))), "node:${node.id}")
+    /** Sets a node's text; consecutive edits of the same node coalesce into one undo step. */
+    suspend fun setNodeText(nodeId: String, text: String) = lock.withLock {
+        val old = requireNotNull(projects.node(nodeId))
+        perform(old.projectId, ChangeSet("Edit node", listOf(Change(old, old.copy(text = text)))), "node:$nodeId")
     }
 
     /** True if removing the node from [viewId] would delete it everywhere. */
@@ -214,9 +223,9 @@ class StoryRepository(
         m.id
     }
 
-    suspend fun updateMarker(marker: MarkerEntity) = lock.withLock {
-        val old = requireNotNull(board.markers(marker.viewId).find { it.id == marker.id })
-        perform(projectOf(marker.viewId), ChangeSet("Edit marker", listOf(Change(old, marker.copy(slot = old.slot)))), "marker:${marker.id}")
+    suspend fun setMarkerLabel(viewId: String, markerId: String, label: String) = lock.withLock {
+        val old = requireNotNull(board.markers(viewId).find { it.id == markerId })
+        perform(projectOf(viewId), ChangeSet("Edit marker", listOf(Change(old, old.copy(label = label)))), "marker:$markerId")
     }
 
     suspend fun moveMarker(viewId: String, markerId: String, beforeSlot: Int) = lock.withLock {
@@ -235,10 +244,9 @@ class StoryRepository(
         id
     }
 
-    suspend fun updateGroup(group: NodeGroupEntity) = lock.withLock {
-        val old = requireNotNull(board.groups(group.viewId).find { it.id == group.id })
-        val edited = old.copy(label = group.label, color = group.color)
-        perform(projectOf(group.viewId), ChangeSet("Edit group", listOf(Change(old, edited))), "group:${group.id}")
+    suspend fun setGroupLabel(viewId: String, groupId: String, label: String) = lock.withLock {
+        val old = requireNotNull(board.groups(viewId).find { it.id == groupId })
+        perform(projectOf(viewId), ChangeSet("Edit group", listOf(Change(old, old.copy(label = label)))), "group:$groupId")
     }
 
     suspend fun ungroup(viewId: String, groupId: String) = lock.withLock {
@@ -314,5 +322,80 @@ class StoryRepository(
             }
         }
         perform(view.projectId, ChangeSet("Delete view", changes))
+    }
+
+    // --- Tags and color (undoable; recorded on [projectId]'s undo stack) ---
+
+    /** Something tags can be assigned to. */
+    sealed interface TagTarget {
+        val id: String
+        data class Node(override val id: String) : TagTarget
+        data class Marker(override val id: String) : TagTarget
+        data class Group(override val id: String) : TagTarget
+        data class Note(override val id: String) : TagTarget
+    }
+
+    /** Creates a tag owned by [worldId] if given, otherwise by the project. */
+    suspend fun createTag(projectId: String, name: String, color: Int? = null, worldId: String? = null): String = lock.withLock {
+        val tag = TagEntity(newId(), if (worldId == null) projectId else null, worldId, name, color)
+        perform(projectId, ChangeSet.insert("Create tag", tag))
+        tag.id
+    }
+
+    suspend fun updateTag(projectId: String, tag: TagEntity) = lock.withLock {
+        require((tag.projectId == null) != (tag.worldId == null)) { "a tag has exactly one owner" }
+        val old = requireNotNull(tags.tag(tag.id))
+        perform(projectId, ChangeSet("Edit tag", listOf(Change(old, tag))), "tag:${tag.id}")
+    }
+
+    /** Deletes a tag and every assignment and filter entry that uses it. */
+    suspend fun deleteTag(projectId: String, tagId: String) = lock.withLock {
+        val tag = requireNotNull(tags.tag(tagId))
+        val uses: List<Any> = tags.nodeTagsOf(tagId) + tags.markerTagsOf(tagId) + tags.groupTagsOf(tagId) +
+            tags.noteTagsOf(tagId) + tags.hiddenOf(tagId)
+        perform(projectId, ChangeSet("Delete tag", uses.map { Change(it, null) } + Change(tag, null)))
+    }
+
+    /** Replaces [target]'s tags with [tagIds], in order; the first is the primary tag. */
+    suspend fun setTags(projectId: String, target: TagTarget, tagIds: List<String>) = lock.withLock {
+        val ids = tagIds.distinct()
+        val changes = when (target) {
+            is TagTarget.Node -> diffRows(tags.nodeTags(target.id), ids.mapIndexed { i, t -> NodeTagEntity(target.id, t, i) }, ::rowKey)
+            is TagTarget.Marker -> diffRows(tags.markerTags(target.id), ids.mapIndexed { i, t -> MarkerTagEntity(target.id, t, i) }, ::rowKey)
+            is TagTarget.Group -> diffRows(tags.groupTags(target.id), ids.mapIndexed { i, t -> GroupTagEntity(target.id, t, i) }, ::rowKey)
+            is TagTarget.Note -> diffRows(tags.noteTags(target.id), ids.mapIndexed { i, t -> NoteTagEntity(target.id, t, i) }, ::rowKey)
+        }
+        perform(projectId, ChangeSet("Change tags", changes))
+    }
+
+    /** Something with an override color. */
+    sealed interface ColorTarget {
+        data class Node(val id: String) : ColorTarget
+        data class Marker(val viewId: String, val id: String) : ColorTarget
+        data class Group(val viewId: String, val id: String) : ColorTarget
+        data class Timeline(val id: String) : ColorTarget
+    }
+
+    /** Sets or clears (null) an item's override color. */
+    suspend fun setColor(projectId: String, target: ColorTarget, color: Int?) = lock.withLock {
+        val change = when (target) {
+            is ColorTarget.Node -> requireNotNull(projects.node(target.id)).let { Change(it, it.copy(color = color)) }
+            is ColorTarget.Marker -> requireNotNull(board.markers(target.viewId).find { it.id == target.id }).let { Change(it, it.copy(color = color)) }
+            is ColorTarget.Group -> requireNotNull(board.groups(target.viewId).find { it.id == target.id }).let { Change(it, it.copy(color = color)) }
+            is ColorTarget.Timeline -> requireNotNull(projects.timeline(target.id)).let { Change(it, it.copy(color = color)) }
+        }
+        perform(projectId, ChangeSet("Change color", listOf(change)))
+    }
+
+    /** Hides or shows items carrying [tagId] in one view. */
+    suspend fun setTagHidden(viewId: String, tagId: String, hidden: Boolean) = lock.withLock {
+        val row = ViewHiddenTagEntity(viewId, tagId)
+        val exists = board.hiddenTags(viewId).any { it.tagId == tagId }
+        val change = when {
+            hidden && !exists -> Change(null, row)
+            !hidden && exists -> Change(row, null)
+            else -> return@withLock
+        }
+        perform(projectOf(viewId), ChangeSet(if (hidden) "Hide tag" else "Show tag", listOf(change)))
     }
 }

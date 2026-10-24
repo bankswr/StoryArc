@@ -87,7 +87,9 @@ interface BoardDao {
                   (SELECT COUNT(*) FROM node_group WHERE viewId = :viewId) +
                   (SELECT COUNT(*) FROM view_timeline WHERE viewId = :viewId) +
                   (SELECT COUNT(*) FROM timeline) + (SELECT COUNT(*) FROM node) +
-                  (SELECT COUNT(*) FROM node_tag) + (SELECT COUNT(*) FROM tag)"""
+                  (SELECT COUNT(*) FROM node_tag) + (SELECT COUNT(*) FROM tag) +
+                  (SELECT COUNT(*) FROM marker_tag) + (SELECT COUNT(*) FROM group_tag) +
+                  (SELECT COUNT(*) FROM view_hidden_tag) + (SELECT COUNT(*) FROM board_view)"""
     )
     fun observeViewChanges(viewId: String): Flow<Int>
 
@@ -105,3 +107,45 @@ interface BoardDao {
 }
 
 data class TimelineCount(val timelineId: String, val count: Int)
+
+@Dao
+interface TagDao {
+    /** Tags a project can use: its own plus those of every world library it links. */
+    @Query(
+        """SELECT * FROM tag WHERE projectId = :projectId
+           OR worldId IN (SELECT worldId FROM project_world WHERE projectId = :projectId) ORDER BY name COLLATE NOCASE"""
+    )
+    fun observeProjectTags(projectId: String): Flow<List<TagEntity>>
+
+    @Query(
+        """SELECT * FROM tag WHERE projectId = :projectId
+           OR worldId IN (SELECT worldId FROM project_world WHERE projectId = :projectId)"""
+    )
+    suspend fun projectTags(projectId: String): List<TagEntity>
+
+    @Query("SELECT * FROM tag WHERE id = :id")
+    suspend fun tag(id: String): TagEntity?
+
+    @Query("SELECT nt.* FROM node_tag nt JOIN placement p ON p.nodeId = nt.targetId WHERE p.viewId = :viewId")
+    suspend fun nodeTagsInView(viewId: String): List<NodeTagEntity>
+
+    @Query("SELECT mt.* FROM marker_tag mt JOIN marker m ON m.id = mt.targetId WHERE m.viewId = :viewId")
+    suspend fun markerTagsInView(viewId: String): List<MarkerTagEntity>
+
+    @Query("SELECT gt.* FROM group_tag gt JOIN node_group g ON g.id = gt.targetId WHERE g.viewId = :viewId")
+    suspend fun groupTagsInView(viewId: String): List<GroupTagEntity>
+
+    @Query("SELECT * FROM node_tag WHERE targetId = :id ORDER BY ordinal") suspend fun nodeTags(id: String): List<NodeTagEntity>
+    @Query("SELECT * FROM marker_tag WHERE targetId = :id ORDER BY ordinal") suspend fun markerTags(id: String): List<MarkerTagEntity>
+    @Query("SELECT * FROM group_tag WHERE targetId = :id ORDER BY ordinal") suspend fun groupTags(id: String): List<GroupTagEntity>
+    @Query("SELECT * FROM note_tag WHERE targetId = :id ORDER BY ordinal") suspend fun noteTags(id: String): List<NoteTagEntity>
+
+    @Query("SELECT * FROM node_tag WHERE tagId = :tagId") suspend fun nodeTagsOf(tagId: String): List<NodeTagEntity>
+    @Query("SELECT * FROM marker_tag WHERE tagId = :tagId") suspend fun markerTagsOf(tagId: String): List<MarkerTagEntity>
+    @Query("SELECT * FROM group_tag WHERE tagId = :tagId") suspend fun groupTagsOf(tagId: String): List<GroupTagEntity>
+    @Query("SELECT * FROM note_tag WHERE tagId = :tagId") suspend fun noteTagsOf(tagId: String): List<NoteTagEntity>
+    @Query("SELECT * FROM view_hidden_tag WHERE tagId = :tagId") suspend fun hiddenOf(tagId: String): List<ViewHiddenTagEntity>
+
+    @Query("SELECT * FROM view_hidden_tag WHERE viewId = :viewId")
+    fun observeHidden(viewId: String): Flow<List<ViewHiddenTagEntity>>
+}

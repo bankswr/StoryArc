@@ -20,6 +20,7 @@ abstract class StoryDatabase : RoomDatabase() {
     abstract fun rows(): RowDao
     abstract fun projects(): ProjectDao
     abstract fun board(): BoardDao
+    abstract fun tags(): TagDao
 
     companion object {
         fun create(context: Context): StoryDatabase =

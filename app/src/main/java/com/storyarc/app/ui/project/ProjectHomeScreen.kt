@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
@@ -44,7 +45,7 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectHomeScreen(projectId: String, onBack: () -> Unit, onOpenView: (String) -> Unit) {
+fun ProjectHomeScreen(projectId: String, onBack: () -> Unit, onOpenView: (String) -> Unit, onTags: () -> Unit = {}) {
     val repo = appContainer().repository
     val project by repo.projects.observeProject(projectId).collectAsStateWithLifecycle(null)
     val views by repo.projects.observeViews(projectId).collectAsStateWithLifecycle(emptyList())
@@ -92,6 +93,15 @@ fun ProjectHomeScreen(projectId: String, onBack: () -> Unit, onOpenView: (String
                     headlineContent = { Text("New view") },
                     leadingContent = { Icon(Icons.Default.Add, null) },
                     modifier = Modifier.clickable { creating = true },
+                )
+            }
+            item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
+            item {
+                ListItem(
+                    headlineContent = { Text("Tags") },
+                    supportingContent = { Text("Dimensions, colors and references") },
+                    leadingContent = { Icon(Icons.AutoMirrored.Filled.Label, null) },
+                    modifier = Modifier.clickable(onClick = onTags),
                 )
             }
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }

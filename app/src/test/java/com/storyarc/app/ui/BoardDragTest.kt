@@ -171,7 +171,8 @@ class BoardDragTest {
     @Test
     fun groupSelectedNodesThenDragGroupByItsBar() {
         open()
-        compose.onNodeWithContentDescription("Select nodes").performClick()
+        compose.onNodeWithContentDescription("More").performClick()
+        compose.onNodeWithText("Select nodes").performClick()
         compose.onNodeWithText("Leaves").performClick()
         compose.onNodeWithText("Storm").performClick()
         compose.onNodeWithText("2 · Ready to group").assertExists()

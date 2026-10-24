@@ -56,6 +56,11 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.storyarc.app.data.db.NodeEntity
+import com.storyarc.app.data.db.TagEntity
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.alpha
 import com.storyarc.board.BoardState
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
@@ -325,9 +330,10 @@ fun BoardCanvas(
                         val fill = when (markerId) {
                             blockedBy -> colors.tertiaryContainer
                             draggedMarker -> colors.surfaceVariant
-                            else -> colors.primaryContainer
+                            else -> ui.markerColor(markerId)?.let { Color(it) } ?: colors.primaryContainer
                         }
-                        drawRect(fill, Offset(x, 0f), Size(geometry.width(s), size.height))
+                        val alpha = if (ui.isHidden(ui.markerTags[markerId])) 0.25f else 1f
+                        drawRect(fill.copy(alpha = fill.alpha * alpha), Offset(x, 0f), Size(geometry.width(s), size.height))
                     } else {
                         drawLine(colors.outlineVariant, Offset(x, 0f), Offset(x, geometry.contentHeight - sy), 1f)
                     }
@@ -335,12 +341,13 @@ fun BoardCanvas(
                 val barH = 3.dp.toPx() * viewport.zoom
                 for (span in spans) {
                     if (span.last < slots.first || span.first > slots.last) continue
-                    val color = ui.groups[span.groupId]?.color?.let { Color(it) } ?: colors.tertiary
+                    val color = ui.groupColor(span.groupId)?.let { Color(it) } ?: colors.tertiary
+                    val faded = ui.isHidden(ui.groupTags[span.groupId])
                     val left = headerPx + geometry.x(span.first) - sx + BoardDims.cardPadding.toPx()
                     val right = headerPx + geometry.x(span.last) + geometry.width(span.last) - sx - BoardDims.cardPadding.toPx()
                     val y = geometry.y(span.row + 1) - sy - stripPx * barOffsetFraction(span.depth)
                     drawRoundRect(
-                        color.copy(alpha = if (span.groupId == (session?.item as? DragItem.Group)?.id) 0.35f else 1f),
+                        color.copy(alpha = if (faded || span.groupId == (session?.item as? DragItem.Group)?.id) 0.3f else 1f),
                         Offset(left, y - barH / 2), Size(right - left, barH),
                         androidx.compose.ui.geometry.CornerRadius(barH / 2),
                     )
@@ -352,6 +359,7 @@ fun BoardCanvas(
                 if (markerId == draggedMarker) continue
                 MarkerLabel(
                     ui.markers[markerId]?.label.orEmpty(),
+                    ui.markerColor(markerId)?.let { readableOn(Color(it)) } ?: colors.onPrimaryContainer,
                     Modifier
                         .offset { IntOffset((headerPx + geometry.x(s) - sx).roundToInt(), 0) }
                         .width(with(density) { geometry.width(s).toDp() })
@@ -363,7 +371,7 @@ fun BoardCanvas(
                 if (span.depth > 0 || span.last < slots.first || span.first > slots.last) continue
                 val label = ui.groups[span.groupId]?.label.orEmpty()
                 if (label.isBlank()) continue
-                val color = ui.groups[span.groupId]?.color?.let { Color(it) } ?: colors.tertiary
+                val color = ui.groupColor(span.groupId)?.let { Color(it) } ?: colors.tertiary
                 val maxW = with(density) { (geometry.x(span.last) + geometry.width(span.last) - geometry.x(span.first)).toDp() - 24.dp }
                 // A chip sitting on the group's bar.
                 Text(
@@ -399,7 +407,10 @@ fun BoardCanvas(
                     val ghost = nodeId in dragged
                     NodeCard(
                         node,
-                        Modifier
+                        color = ui.nodeColor(nodeId),
+                        tags = ui.nodeTags[nodeId].orEmpty().mapNotNull { ui.tags[it] },
+                        faded = ui.isHidden(ui.nodeTags[nodeId]),
+                        modifier = Modifier
                             .offset {
                                 // The ghost marks the landing cell exactly; everything else glides.
                                 val x = geometry.xAt(if (ghost) cell.slot.toFloat() else slotPos)
@@ -426,6 +437,14 @@ fun BoardCanvas(
                     ) {
                         Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     }
+                    t.color?.let { c ->
+                        Box(
+                            Modifier
+                                .offset { IntOffset(0, (geometry.y(r) - sy).roundToInt()) }
+                                .size(4.dp, cardH)
+                                .background(Color(c)),
+                        )
+                    }
                 }
             }
 
@@ -436,7 +455,8 @@ fun BoardCanvas(
                     is DragItem.Node -> ui.nodes[item.id]?.let { node ->
                         NodeCard(
                             node,
-                            Modifier
+                            color = ui.nodeColor(node.id),
+                            modifier = Modifier
                                 .offset { IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()) }
                                 .size(cardW, cardH)
                                 .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
@@ -469,7 +489,8 @@ fun BoardCanvas(
                             val dx = baseGeometry.x(ui.board.placements.getValue(m).slot) - baseGeometry.x(first)
                             NodeCard(
                                 node,
-                                Modifier
+                                color = ui.nodeColor(m),
+                                modifier = Modifier
                                     .offset { IntOffset((topLeft.x + dx).roundToInt(), topLeft.y.roundToInt()) }
                                     .size(cardW, cardH)
                                     .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
@@ -525,21 +546,24 @@ private fun hitTest(
 fun NodeCard(
     node: NodeEntity,
     modifier: Modifier = Modifier,
+    color: Int? = node.color,
+    tags: List<TagEntity> = emptyList(),
     lifted: Boolean = false,
     ghost: Boolean = false,
     selected: Boolean = false,
+    faded: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
     if (ghost) {
         Box(modifier.border(BorderStroke(2.dp, colors.primary.copy(alpha = 0.6f)), RoundedCornerShape(10.dp)))
         return
     }
-    val bg = node.color?.let { Color(it) } ?: colors.secondaryContainer
+    val bg = color?.let { Color(it) } ?: colors.secondaryContainer
     Surface(
-        modifier = modifier,
+        modifier = if (faded) modifier.alpha(0.2f) else modifier,
         shape = RoundedCornerShape(10.dp),
         color = bg,
-        contentColor = if (node.color != null) readableOn(bg) else colors.onSecondaryContainer,
+        contentColor = if (color != null) readableOn(bg) else colors.onSecondaryContainer,
         shadowElevation = if (lifted) 8.dp else 1.dp,
         border = if (selected) BorderStroke(3.dp, colors.primary) else null,
     ) {
@@ -549,17 +573,30 @@ fun NodeCard(
             } else {
                 Text(node.text, style = MaterialTheme.typography.bodySmall, overflow = TextOverflow.Ellipsis)
             }
+            if (tags.isNotEmpty()) {
+                // Tag dots along the bottom edge; outlined so a dot matching the card stays visible.
+                Row(Modifier.align(Alignment.BottomEnd), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    tags.take(5).forEach { t ->
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .background(t.color?.let { Color(it) } ?: colors.outline, CircleShape)
+                                .border(1.dp, readableOn(bg).copy(alpha = 0.4f), CircleShape),
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun MarkerLabel(label: String, modifier: Modifier) {
+private fun MarkerLabel(label: String, color: Color, modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            color = color,
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis,

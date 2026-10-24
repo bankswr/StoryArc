@@ -8,6 +8,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.activity.compose.setContent
 import com.storyarc.app.MainActivity
 import com.storyarc.app.StoryArcApp
+import com.storyarc.app.data.repo.StoryRepository
 import com.storyarc.app.ui.board.BoardScreen
 import com.storyarc.app.ui.theme.StoryArcTheme
 import com.storyarc.board.Drop
@@ -53,6 +54,10 @@ class BoardScreenshotTest {
         val storm = repo.addNode(v, "Storm; ship runs aground", Drop.Onto(mara, 1))
         repo.createGroup(v, listOf(leaves, storm), "Voyage")
         repo.createGroup(v, listOf(storm), "")
+        val danger = repo.createTag(p, "Danger", color = 0xFFE57373.toInt())
+        val pov = repo.createTag(p, "POV", color = 0xFF64B5F6.toInt())
+        repo.setTags(p, StoryRepository.TagTarget.Node(storm), listOf(danger, pov))
+        repo.setColor(p, StoryRepository.ColorTarget.Timeline(mara), 0xFF64B5F6.toInt())
         repo.addNode(v, "Waits at the inn", Drop.Onto(joss, 0))
         repo.addNode(v, "", Drop.Onto(joss, 2))
         repo.addMarker(v, "Day 2", 2)

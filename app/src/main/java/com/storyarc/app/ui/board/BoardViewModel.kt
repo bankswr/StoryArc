@@ -5,9 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.storyarc.app.data.db.MarkerEntity
 import com.storyarc.app.data.db.NodeEntity
 import com.storyarc.app.data.db.NodeGroupEntity
+import com.storyarc.app.data.db.TagEntity
 import com.storyarc.app.data.db.TimelineEntity
 import com.storyarc.app.data.db.ViewEntity
 import com.storyarc.app.data.repo.StoryRepository
+import com.storyarc.app.data.repo.StoryRepository.ColorTarget
+import com.storyarc.app.data.repo.StoryRepository.TagTarget
 import com.storyarc.app.data.repo.ViewRows
 import com.storyarc.board.BoardState
 import com.storyarc.board.Drop
@@ -19,7 +22,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** Everything the board screen draws for one view. */
+/** Everything the board screen draws for one view. Tag lists are ordered, primary first. */
 data class BoardUi(
     val view: ViewEntity,
     val board: BoardState,
@@ -27,7 +30,22 @@ data class BoardUi(
     val nodes: Map<String, NodeEntity>,
     val markers: Map<String, MarkerEntity>,
     val groups: Map<String, NodeGroupEntity>,
-)
+    val tags: Map<String, TagEntity> = emptyMap(),
+    val nodeTags: Map<String, List<String>> = emptyMap(),
+    val markerTags: Map<String, List<String>> = emptyMap(),
+    val groupTags: Map<String, List<String>> = emptyMap(),
+    val hiddenTags: Set<String> = emptySet(),
+) {
+    /** The item's own color, else its primary tag's color, else null (theme default). */
+    fun colorOf(own: Int?, tagIds: List<String>?): Int? = own ?: tagIds?.firstOrNull()?.let { tags[it]?.color }
+
+    fun nodeColor(id: String) = colorOf(nodes[id]?.color, nodeTags[id])
+    fun markerColor(id: String) = colorOf(markers[id]?.color, markerTags[id])
+    fun groupColor(id: String) = colorOf(groups[id]?.color, groupTags[id])
+
+    /** Filtered out by the view's hidden tags (drawn faintly; structure is unaffected). */
+    fun isHidden(tagIds: List<String>?) = hiddenTags.isNotEmpty() && tagIds.orEmpty().any { it in hiddenTags }
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BoardViewModel(
@@ -41,10 +59,14 @@ class BoardViewModel(
         .mapLatest { load() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val projectTags = repo.tags.observeProjectTags(projectId)
+
     private suspend fun load(): BoardUi? {
         val view = repo.projects.view(viewId) ?: return null
         val rows = ViewRows.load(repo.board, viewId)
         val timelines = repo.board.timelinesInView(viewId).associateBy { it.id }
+        fun <T> List<T>.ordered(target: (T) -> String, tag: (T) -> String, ordinal: (T) -> Int) =
+            groupBy(target).mapValues { (_, v) -> v.sortedBy(ordinal).map(tag) }
         return BoardUi(
             view = view,
             board = rows.toBoard(),
@@ -52,6 +74,11 @@ class BoardViewModel(
             nodes = repo.board.nodesInView(viewId).associateBy { it.id },
             markers = rows.markers.associateBy { it.id },
             groups = rows.groups.associateBy { it.id },
+            tags = repo.tags.projectTags(projectId).associateBy { it.id },
+            nodeTags = repo.tags.nodeTagsInView(viewId).ordered({ it.targetId }, { it.tagId }, { it.ordinal }),
+            markerTags = repo.tags.markerTagsInView(viewId).ordered({ it.targetId }, { it.tagId }, { it.ordinal }),
+            groupTags = repo.tags.groupTagsInView(viewId).ordered({ it.targetId }, { it.tagId }, { it.ordinal }),
+            hiddenTags = repo.board.hiddenTags(viewId).map { it.tagId }.toSet(),
         )
     }
 
@@ -65,7 +92,7 @@ class BoardViewModel(
     /** Creates an empty node at [drop] and reports its id so the editor can open. */
     fun addNode(drop: Drop, onCreated: (String) -> Unit) = launch { onCreated(addNode(viewId, "", drop)) }
 
-    fun editNodeText(node: NodeEntity, text: String) = launch { updateNode(node.copy(text = text)) }
+    fun editNodeText(nodeId: String, text: String) = launch { setNodeText(nodeId, text) }
 
     /** Starts a fresh undo step for the next edit (e.g. when an editor opens). */
     fun breakCoalescing() = repo.undoManager(projectId).breakCoalescing()
@@ -80,7 +107,7 @@ class BoardViewModel(
 
     fun addMarker(label: String, beforeSlot: Int) = launch { addMarker(viewId, label, beforeSlot) }
 
-    fun editMarker(marker: MarkerEntity, label: String) = launch { updateMarker(marker.copy(label = label)) }
+    fun editMarker(markerId: String, label: String) = launch { setMarkerLabel(viewId, markerId, label) }
 
     fun moveMarker(markerId: String, beforeSlot: Int) = launch { moveMarker(viewId, markerId, beforeSlot) }
 
@@ -88,7 +115,16 @@ class BoardViewModel(
 
     fun createGroup(nodeIds: List<String>, label: String) = launch { createGroup(viewId, nodeIds, label) }
 
-    fun editGroup(group: NodeGroupEntity, label: String) = launch { updateGroup(group.copy(label = label)) }
+    fun editGroup(groupId: String, label: String) = launch { setGroupLabel(viewId, groupId, label) }
 
     fun ungroup(groupId: String) = launch { ungroup(viewId, groupId) }
+
+    fun setTags(target: TagTarget, tagIds: List<String>) = launch { setTags(projectId, target, tagIds) }
+
+    fun setColor(target: ColorTarget, color: Int?) = launch { setColor(projectId, target, color) }
+
+    /** Creates a project tag and reports its id. */
+    fun createTag(name: String, onCreated: (String) -> Unit) = launch { onCreated(createTag(projectId, name)) }
+
+    fun setTagHidden(tagId: String, hidden: Boolean) = launch { setTagHidden(viewId, tagId, hidden) }
 }

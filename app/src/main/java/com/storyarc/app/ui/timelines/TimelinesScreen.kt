@@ -13,6 +13,12 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.graphics.Color
+import com.storyarc.app.data.repo.StoryRepository
+import com.storyarc.app.ui.common.AppAlertDialog
+import com.storyarc.app.ui.common.ColorPicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -52,6 +58,7 @@ fun TimelinesScreen(projectId: String, viewId: String, onBack: () -> Unit) {
     var adding by rememberSaveable { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<TimelineEntity?>(null) }
     var removing by remember { mutableStateOf<TimelineEntity?>(null) }
+    var coloring by remember { mutableStateOf<TimelineEntity?>(null) }
 
     Scaffold(
         topBar = {
@@ -78,6 +85,9 @@ fun TimelinesScreen(projectId: String, viewId: String, onBack: () -> Unit) {
                     supportingContent = { Text(if (n == 1) "1 node" else "$n nodes") },
                     trailingContent = {
                         Row {
+                            IconButton(onClick = { coloring = t }) {
+                                Icon(Icons.Default.Palette, "Color", tint = t.color?.let { Color(it) } ?: MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             IconButton(onClick = { scope.launch { repo.moveTimeline(viewId, t.id, i - 1) } }, enabled = i > 0) {
                                 Icon(Icons.Default.KeyboardArrowUp, "Move up")
                             }
@@ -103,8 +113,21 @@ fun TimelinesScreen(projectId: String, viewId: String, onBack: () -> Unit) {
     renaming?.let { t ->
         TextInputDialog("Rename timeline", initial = t.name, onDismiss = { renaming = null }) { name ->
             renaming = null
-            scope.launch { repo.updateTimeline(t.copy(name = name)) }
+            scope.launch { repo.renameTimeline(t.id, name) }
         }
+    }
+    coloring?.let { t ->
+        AppAlertDialog(
+            onDismissRequest = { coloring = null },
+            title = { Text("Color for ${t.name}") },
+            text = {
+                ColorPicker(t.color, { c ->
+                    coloring = null
+                    scope.launch { repo.setColor(projectId, StoryRepository.ColorTarget.Timeline(t.id), c) }
+                })
+            },
+            confirmButton = { TextButton(onClick = { coloring = null }) { Text("Close") } },
+        )
     }
     removing?.let { t ->
         ConfirmDialog(

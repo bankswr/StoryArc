@@ -19,6 +19,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -78,6 +80,7 @@ fun BoardScreen(
     // Selection mode: taps toggle nodes instead of opening them.
     var selection by rememberSaveable { mutableStateOf<List<String>?>(null) }
     var namingGroup by rememberSaveable { mutableStateOf(false) }
+    var filtering by rememberSaveable { mutableStateOf(false) }
     val views by repo.projects.observeViews(projectId).collectAsStateWithLifecycle(emptyList())
 
     Scaffold(
@@ -104,13 +107,35 @@ fun BoardScreen(
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
                     UndoRedoActions(undo, vm::undo, vm::redo)
-                    IconButton(onClick = { addingMarker = true }, enabled = ui?.timelines?.isNotEmpty() == true) {
-                        Icon(Icons.Default.Bookmark, "Add marker")
+                    var more by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { more = true }) { Icon(Icons.Default.MoreVert, "More") }
+                        DropdownMenu(more, onDismissRequest = { more = false }) {
+                            val hasTimelines = ui?.timelines?.isNotEmpty() == true
+                            DropdownMenuItem(
+                                text = { Text("Add marker") },
+                                leadingIcon = { Icon(Icons.Default.Bookmark, null) },
+                                enabled = hasTimelines,
+                                onClick = { more = false; addingMarker = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Select nodes") },
+                                leadingIcon = { Icon(Icons.Default.Checklist, null) },
+                                enabled = ui?.board?.placements?.isNotEmpty() == true,
+                                onClick = { more = false; selection = emptyList() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (ui?.hiddenTags.isNullOrEmpty()) "Filter tags" else "Filter tags (active)") },
+                                leadingIcon = { Icon(Icons.Default.FilterList, null) },
+                                onClick = { more = false; filtering = true },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Timelines") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null) },
+                                onClick = { more = false; onTimelines() },
+                            )
+                        }
                     }
-                    IconButton(onClick = { selection = emptyList() }, enabled = ui?.board?.placements?.isNotEmpty() == true) {
-                        Icon(Icons.Default.Checklist, "Select nodes")
-                    }
-                    IconButton(onClick = onTimelines) { Icon(Icons.AutoMirrored.Filled.List, "Timelines") }
                 },
             )
         },
@@ -182,12 +207,7 @@ fun BoardScreen(
         if (marker == null) {
             LaunchedEffect(id) { editingMarker = null }
         } else {
-            MarkerDialog(
-                label = marker.label,
-                onDismiss = { editingMarker = null },
-                onSave = { vm.editMarker(marker, it); editingMarker = null },
-                onDelete = { vm.removeMarker(marker.id); editingMarker = null },
-            )
+            MarkerSheet(vm, current, marker.id, onDismiss = { editingMarker = null })
         }
     }
     if (namingGroup) {
@@ -202,13 +222,11 @@ fun BoardScreen(
         if (group == null) {
             LaunchedEffect(id) { editingGroup = null }
         } else {
-            GroupDialog(
-                label = group.label,
-                onDismiss = { editingGroup = null },
-                onSave = { vm.editGroup(group, it); editingGroup = null },
-                onUngroup = { vm.ungroup(group.id); editingGroup = null },
-            )
+            GroupSheet(vm, current, group.id, onDismiss = { editingGroup = null })
         }
+    }
+    if (filtering && current != null) {
+        FilterSheet(vm, current, onDismiss = { filtering = false })
     }
     if (addingMarker && current != null) {
         TextInputDialog("New marker", confirmLabel = "Add", onDismiss = { addingMarker = false }) { label ->
@@ -217,91 +235,6 @@ fun BoardScreen(
             vm.addMarker(label, viewport.firstVisibleSlot)
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
-    val node = ui.nodes.getValue(nodeId)
-    var text by remember(nodeId) { mutableStateOf(node.text) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    var confirmLastRemove by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(nodeId) { vm.breakCoalescing() }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it; vm.editNodeText(node, it) },
-                label = { Text("Note") },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    scope.launch {
-                        if (vm.isLastPlacement(nodeId)) confirmLastRemove = true else { vm.removeNodeFromView(nodeId); onDismiss() }
-                    }
-                }) { Text("Remove from view") }
-                TextButton(onClick = { confirmDelete = true }) { Text("Delete everywhere") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onSelect(nodeId) }) { Text("Select for grouping") }
-            }
-        }
-    }
-    if (confirmDelete) {
-        ConfirmDialog("Delete node?", "The node is removed from every view. You can undo this.", "Delete", onDismiss = { confirmDelete = false }) {
-            vm.deleteNodeEverywhere(nodeId); onDismiss()
-        }
-    }
-    if (confirmLastRemove) {
-        ConfirmDialog(
-            "Delete node?",
-            "This view is the only one using this node, so removing it deletes it. You can undo this.",
-            "Delete",
-            onDismiss = { confirmLastRemove = false },
-        ) { vm.removeNodeFromView(nodeId); onDismiss() }
-    }
-}
-
-@Composable
-private fun MarkerDialog(label: String, onDismiss: () -> Unit, onSave: (String) -> Unit, onDelete: () -> Unit) {
-    var value by remember { mutableStateOf(label) }
-    AppAlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Marker") },
-        text = { OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("Label") }, modifier = Modifier.fillMaxWidth()) },
-        confirmButton = { TextButton(onClick = { onSave(value.trim()) }, enabled = value.isNotBlank()) { Text("Save") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onDelete) { Text("Delete") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-    )
-}
-
-@Composable
-private fun GroupDialog(label: String, onDismiss: () -> Unit, onSave: (String) -> Unit, onUngroup: () -> Unit) {
-    var value by remember { mutableStateOf(label) }
-    AppAlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Group") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
-                Text("Long-press the group's bar to move the whole group.", style = MaterialTheme.typography.bodySmall)
-            }
-        },
-        confirmButton = { TextButton(onClick = { onSave(value.trim()) }) { Text("Save") } },
-        dismissButton = {
-            Row {
-                TextButton(onClick = onUngroup) { Text("Ungroup") }
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-            }
-        },
-    )
 }
 
 /** The view name as a title that opens a menu of the project's other views. */

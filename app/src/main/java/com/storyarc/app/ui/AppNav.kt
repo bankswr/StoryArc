@@ -9,6 +9,7 @@ import com.storyarc.app.ui.board.BoardScreen
 import com.storyarc.app.ui.project.ProjectHomeScreen
 import com.storyarc.app.ui.projects.ProjectsScreen
 import com.storyarc.app.ui.settings.SettingsScreen
+import com.storyarc.app.ui.tags.TagsScreen
 import com.storyarc.app.ui.timelines.TimelinesScreen
 import kotlinx.serialization.Serializable
 
@@ -17,6 +18,7 @@ import kotlinx.serialization.Serializable
 @Serializable data class ProjectRoute(val projectId: String)
 @Serializable data class BoardRoute(val projectId: String, val viewId: String)
 @Serializable data class TimelinesRoute(val projectId: String, val viewId: String)
+@Serializable data class TagsRoute(val projectId: String)
 
 @Composable
 fun AppNav() {
@@ -30,7 +32,12 @@ fun AppNav() {
         }
         composable<ProjectRoute> { entry ->
             val r = entry.toRoute<ProjectRoute>()
-            ProjectHomeScreen(r.projectId, onBack = { nav.popBackStack() }, onOpenView = { nav.navigate(BoardRoute(r.projectId, it)) })
+            ProjectHomeScreen(
+                r.projectId,
+                onBack = { nav.popBackStack() },
+                onOpenView = { nav.navigate(BoardRoute(r.projectId, it)) },
+                onTags = { nav.navigate(TagsRoute(r.projectId)) },
+            )
         }
         composable<BoardRoute> { entry ->
             val r = entry.toRoute<BoardRoute>()
@@ -41,6 +48,9 @@ fun AppNav() {
                 onTimelines = { nav.navigate(TimelinesRoute(r.projectId, r.viewId)) },
                 onSwitchView = { nav.navigate(BoardRoute(r.projectId, it)) { popUpTo<BoardRoute> { inclusive = true } } },
             )
+        }
+        composable<TagsRoute> { entry ->
+            TagsScreen(entry.toRoute<TagsRoute>().projectId, onBack = { nav.popBackStack() })
         }
         composable<TimelinesRoute> { entry ->
             val r = entry.toRoute<TimelinesRoute>()
