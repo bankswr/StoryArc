@@ -35,6 +35,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.storyarc.app.data.db.ViewEntity
+import com.storyarc.app.data.db.WorldEntity
+import com.storyarc.app.ui.common.AppAlertDialog
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Link
 import com.storyarc.app.ui.common.ConfirmDialog
 import com.storyarc.app.ui.common.TextInputDialog
 import com.storyarc.app.ui.common.UndoRedoActions
@@ -45,7 +50,13 @@ import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectHomeScreen(projectId: String, onBack: () -> Unit, onOpenView: (String) -> Unit, onTags: () -> Unit = {}) {
+fun ProjectHomeScreen(
+    projectId: String,
+    onBack: () -> Unit,
+    onOpenView: (String) -> Unit,
+    onTags: () -> Unit = {},
+    onOpenWorld: (String) -> Unit = {},
+) {
     val repo = appContainer().repository
     val project by repo.projects.observeProject(projectId).collectAsStateWithLifecycle(null)
     val views by repo.projects.observeViews(projectId).collectAsStateWithLifecycle(emptyList())
@@ -55,6 +66,12 @@ fun ProjectHomeScreen(projectId: String, onBack: () -> Unit, onOpenView: (String
     var creating by rememberSaveable { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<ViewEntity?>(null) }
     var deleting by remember { mutableStateOf<ViewEntity?>(null) }
+    val allWorlds by repo.worlds.observeAllWorlds().collectAsStateWithLifecycle(emptyList())
+    var creatingWorld by rememberSaveable { mutableStateOf(false) }
+    var linkingWorld by rememberSaveable { mutableStateOf(false) }
+    var renamingWorld by remember { mutableStateOf<WorldEntity?>(null) }
+    var unlinkingWorld by remember { mutableStateOf<WorldEntity?>(null) }
+    var deletingWorld by remember { mutableStateOf<WorldEntity?>(null) }
 
     Scaffold(
         topBar = {
@@ -107,7 +124,40 @@ fun ProjectHomeScreen(projectId: String, onBack: () -> Unit, onOpenView: (String
             item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
             item { SectionHeader("World libraries") }
             items(worlds, key = { it.id }) { w ->
-                ListItem(headlineContent = { Text(w.name) }, leadingContent = { Icon(Icons.Default.Public, null) })
+                var menu by remember { mutableStateOf(false) }
+                ListItem(
+                    headlineContent = { Text(w.name) },
+                    leadingContent = { Icon(Icons.Default.Public, null) },
+                    trailingContent = {
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "World library options") }
+                            DropdownMenu(menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renamingWorld = w })
+                                DropdownMenuItem(text = { Text("Unlink from project") }, onClick = { menu = false; unlinkingWorld = w })
+                                DropdownMenuItem(text = { Text("Delete everywhere") }, onClick = { menu = false; deletingWorld = w })
+                            }
+                        }
+                    },
+                    modifier = Modifier.clickable { onOpenWorld(w.id) },
+                )
+            }
+            item {
+                ListItem(
+                    headlineContent = { Text("New world library") },
+                    leadingContent = { Icon(Icons.Default.Add, null) },
+                    modifier = Modifier.clickable { creatingWorld = true },
+                )
+            }
+            val linkable = allWorlds.filter { a -> worlds.none { it.id == a.id } }
+            if (linkable.isNotEmpty()) {
+                item {
+                    ListItem(
+                        headlineContent = { Text("Link an existing world library") },
+                        supportingContent = { Text("Share notes and tags with other projects") },
+                        leadingContent = { Icon(Icons.Default.Link, null) },
+                        modifier = Modifier.clickable { linkingWorld = true },
+                    )
+                }
             }
         }
     }
@@ -120,6 +170,51 @@ fun ProjectHomeScreen(projectId: String, onBack: () -> Unit, onOpenView: (String
                 withContext(Dispatchers.Main) { onOpenView(id) }
             }
         }
+    }
+    if (creatingWorld) {
+        TextInputDialog("New world library", confirmLabel = "Create", onDismiss = { creatingWorld = false }) { name ->
+            creatingWorld = false
+            scope.launch { repo.createWorld(projectId, name) }
+        }
+    }
+    if (linkingWorld) {
+        AppAlertDialog(
+            onDismissRequest = { linkingWorld = false },
+            title = { Text("Link world library") },
+            text = {
+                Column {
+                    allWorlds.filter { a -> worlds.none { it.id == a.id } }.forEach { w ->
+                        ListItem(headlineContent = { Text(w.name) }, modifier = Modifier.clickable {
+                            linkingWorld = false
+                            scope.launch { repo.linkWorld(projectId, w.id) }
+                        })
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { linkingWorld = false }) { Text("Cancel") } },
+        )
+    }
+    renamingWorld?.let { w ->
+        TextInputDialog("Rename world library", initial = w.name, onDismiss = { renamingWorld = null }) { name ->
+            renamingWorld = null
+            scope.launch { repo.renameWorld(projectId, w.id, name) }
+        }
+    }
+    unlinkingWorld?.let { w ->
+        ConfirmDialog(
+            "Unlink \"${w.name}\"?",
+            "Its notes stay in the library for other projects. This project's uses of its tags are removed. You can undo this.",
+            "Unlink",
+            onDismiss = { unlinkingWorld = null },
+        ) { scope.launch { repo.unlinkWorld(projectId, w.id) } }
+    }
+    deletingWorld?.let { w ->
+        ConfirmDialog(
+            "Delete \"${w.name}\" everywhere?",
+            "Its notes, categories and tags are deleted from every project that uses it. This cannot be undone.",
+            "Delete",
+            onDismiss = { deletingWorld = null },
+        ) { scope.launch { repo.deleteWorld(w.id) } }
     }
     renaming?.let { v ->
         TextInputDialog("Rename view", initial = v.name, onDismiss = { renaming = null }) { name ->

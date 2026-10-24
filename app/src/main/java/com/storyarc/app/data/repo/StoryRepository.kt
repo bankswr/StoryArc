@@ -9,6 +9,9 @@ import com.storyarc.app.data.db.ProjectWorldEntity
 import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.app.data.db.TimelineEntity
 import com.storyarc.app.data.db.ViewEntity
+import com.storyarc.app.data.db.CategoryEntity
+import com.storyarc.app.data.db.NoteEntity
+import com.storyarc.app.data.db.NoteLinkEntity
 import com.storyarc.app.data.db.GroupTagEntity
 import com.storyarc.app.data.db.MarkerTagEntity
 import com.storyarc.app.data.db.NodeTagEntity
@@ -54,6 +57,7 @@ class StoryRepository(
     val projects = db.projects()
     val board = db.board()
     val tags = db.tags()
+    val worlds = db.worlds()
 
     private val lock = Mutex()
     private val undoManagers = HashMap<String, UndoManager>()
@@ -397,5 +401,127 @@ class StoryRepository(
             else -> return@withLock
         }
         perform(projectOf(viewId), ChangeSet(if (hidden) "Hide tag" else "Show tag", listOf(change)))
+    }
+
+    // --- World libraries ---
+
+    /** Creates a world library linked to [projectId]. */
+    suspend fun createWorld(projectId: String, name: String): String = lock.withLock {
+        val world = WorldEntity(newId(), name)
+        perform(projectId, ChangeSet.insert("Create world library", world, ProjectWorldEntity(projectId, world.id)))
+        world.id
+    }
+
+    suspend fun renameWorld(projectId: String, worldId: String, name: String) = lock.withLock {
+        val old = requireNotNull(worlds.world(worldId))
+        perform(projectId, ChangeSet("Rename world library", listOf(Change(old, old.copy(name = name)))))
+    }
+
+    suspend fun linkWorld(projectId: String, worldId: String) = lock.withLock {
+        if (worlds.links(worldId).any { it.projectId == projectId }) return@withLock
+        perform(projectId, ChangeSet.insert("Link world library", ProjectWorldEntity(projectId, worldId)))
+    }
+
+    /**
+     * Unlinks a world library from a project, removing the project's uses of the world's tags
+     * (assignments on its nodes, markers and groups, and its views' filters).
+     */
+    suspend fun unlinkWorld(projectId: String, worldId: String) = lock.withLock {
+        val link = worlds.links(worldId).find { it.projectId == projectId } ?: return@withLock
+        val worldTags = tags.projectTags(projectId).filter { it.worldId == worldId }.map { it.id }.toSet()
+        val viewIds = projects.views(projectId).map { it.id }
+        val uses = buildList<Any> {
+            for (v in viewIds) {
+                addAll(tags.nodeTagsInView(v).filter { it.tagId in worldTags })
+                addAll(tags.markerTagsInView(v).filter { it.tagId in worldTags })
+                addAll(tags.groupTagsInView(v).filter { it.tagId in worldTags })
+                addAll(board.hiddenTags(v).filter { it.tagId in worldTags })
+            }
+        }.distinct()
+        // Project tags that point at the world's notes lose the reference.
+        val noteIds = worlds.notes(worldId).map { it.id }
+        val relinks = tags.projectTags(projectId).filter { it.projectId == projectId && it.linkedNoteId in noteIds }
+            .map { Change(it, it.copy(linkedNoteId = null)) }
+        perform(projectId, ChangeSet("Unlink world library", uses.map { Change(it, null) } + relinks + Change(link, null)))
+    }
+
+    /**
+     * Permanently deletes a world library from every project, with its notes and tags. Not
+     * undoable; all undo history is cleared because it may refer to the deleted rows.
+     */
+    suspend fun deleteWorld(worldId: String) = lock.withLock {
+        db.withTransaction {
+            worlds.unlinkTagsFromWorldNotes(worldId)
+            worlds.deleteWorld(worldId)
+        }
+        synchronized(undoManagers) { undoManagers.values.forEach { it.clear() } }
+    }
+
+    suspend fun createCategory(projectId: String, worldId: String, name: String, parentId: String? = null): String = lock.withLock {
+        val c = CategoryEntity(newId(), worldId, parentId, name, worlds.categories(worldId).size)
+        perform(projectId, ChangeSet.insert("Create category", c))
+        c.id
+    }
+
+    suspend fun renameCategory(projectId: String, worldId: String, categoryId: String, name: String) = lock.withLock {
+        val old = requireNotNull(worlds.categories(worldId).find { it.id == categoryId })
+        perform(projectId, ChangeSet("Rename category", listOf(Change(old, old.copy(name = name)))))
+    }
+
+    /** Deletes a category; its notes and subcategories move up to its parent. */
+    suspend fun deleteCategory(projectId: String, worldId: String, categoryId: String) = lock.withLock {
+        val all = worlds.categories(worldId)
+        val c = requireNotNull(all.find { it.id == categoryId })
+        val changes = buildList {
+            all.filter { it.parentId == categoryId }.forEach { add(Change(it, it.copy(parentId = c.parentId))) }
+            worlds.notes(worldId).filter { it.categoryId == categoryId }.forEach { add(Change(it, it.copy(categoryId = c.parentId))) }
+            add(Change(c, null))
+        }
+        perform(projectId, ChangeSet("Delete category", changes))
+    }
+
+    suspend fun createNote(projectId: String, worldId: String, title: String, categoryId: String? = null): String = lock.withLock {
+        val n = NoteEntity(newId(), worldId, categoryId, title, "")
+        perform(projectId, ChangeSet.insert("Create note", n))
+        n.id
+    }
+
+    /** Edits a note's title, body or category; text edits coalesce per note and field. */
+    suspend fun editNote(projectId: String, noteId: String, title: String? = null, body: String? = null, categoryId: String? = null, clearCategory: Boolean = false) =
+        lock.withLock {
+            val old = requireNotNull(worlds.note(noteId))
+            val new = old.copy(
+                title = title ?: old.title,
+                body = body ?: old.body,
+                categoryId = if (clearCategory) null else categoryId ?: old.categoryId,
+            )
+            val key = when {
+                title != null -> "note-title:$noteId"
+                body != null -> "note-body:$noteId"
+                else -> null
+            }
+            perform(projectId, ChangeSet("Edit note", listOf(Change(old, new))), key)
+        }
+
+    /** Deletes a note with its links and tags; tags that referenced it lose the reference. */
+    suspend fun deleteNote(projectId: String, noteId: String) = lock.withLock {
+        val note = requireNotNull(worlds.note(noteId))
+        val changes = buildList {
+            worlds.linksOf(noteId).forEach { add(Change(it, null)) }
+            worlds.noteTagsOf(listOf(noteId)).forEach { add(Change(it, null)) }
+            worlds.tagsLinking(listOf(noteId)).forEach { add(Change(it, it.copy(linkedNoteId = null))) }
+            add(Change(note, null))
+        }
+        perform(projectId, ChangeSet("Delete note", changes))
+    }
+
+    suspend fun linkNotes(projectId: String, fromNoteId: String, toNoteId: String) = lock.withLock {
+        if (fromNoteId == toNoteId || worlds.linksOf(fromNoteId).any { it.fromNoteId == fromNoteId && it.toNoteId == toNoteId }) return@withLock
+        perform(projectId, ChangeSet.insert("Link notes", NoteLinkEntity(fromNoteId, toNoteId)))
+    }
+
+    suspend fun unlinkNotes(projectId: String, fromNoteId: String, toNoteId: String) = lock.withLock {
+        val link = worlds.linksOf(fromNoteId).find { it.fromNoteId == fromNoteId && it.toNoteId == toNoteId } ?: return@withLock
+        perform(projectId, ChangeSet("Unlink notes", listOf(Change(link, null))))
     }
 }

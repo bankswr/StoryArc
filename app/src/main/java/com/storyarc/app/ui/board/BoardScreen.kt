@@ -66,6 +66,7 @@ fun BoardScreen(
     onBack: () -> Unit,
     onTimelines: () -> Unit,
     onSwitchView: (String) -> Unit = {},
+    onOpenNote: (String) -> Unit = {},
 ) {
     val repo = appContainer().repository
     val vm = viewModel(key = viewId) { BoardViewModel(repo, projectId, viewId) }
@@ -199,7 +200,12 @@ fun BoardScreen(
         if (current != null && node == null) {
             LaunchedEffect(id) { editingNode = null }
         } else if (node != null) {
-            NodeEditorSheet(vm, node.id, current, onDismiss = { editingNode = null }, onSelect = { editingNode = null; selection = listOf(it) })
+            NodeEditorSheet(
+                vm, node.id, current,
+                onDismiss = { editingNode = null },
+                onSelect = { editingNode = null; selection = listOf(it) },
+                onOpenNote = { editingNode = null; onOpenNote(it) },
+            )
         }
     }
     editingMarker?.let { id ->
@@ -207,7 +213,7 @@ fun BoardScreen(
         if (marker == null) {
             LaunchedEffect(id) { editingMarker = null }
         } else {
-            MarkerSheet(vm, current, marker.id, onDismiss = { editingMarker = null })
+            MarkerSheet(vm, current, marker.id, onDismiss = { editingMarker = null }, onOpenNote = { editingMarker = null; onOpenNote(it) })
         }
     }
     if (namingGroup) {
@@ -222,7 +228,7 @@ fun BoardScreen(
         if (group == null) {
             LaunchedEffect(id) { editingGroup = null }
         } else {
-            GroupSheet(vm, current, group.id, onDismiss = { editingGroup = null })
+            GroupSheet(vm, current, group.id, onDismiss = { editingGroup = null }, onOpenNote = { editingGroup = null; onOpenNote(it) })
         }
     }
     if (filtering && current != null) {

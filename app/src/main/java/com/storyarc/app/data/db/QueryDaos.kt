@@ -149,3 +149,67 @@ interface TagDao {
     @Query("SELECT * FROM view_hidden_tag WHERE viewId = :viewId")
     fun observeHidden(viewId: String): Flow<List<ViewHiddenTagEntity>>
 }
+
+@Dao
+interface WorldDao {
+    @Query("SELECT * FROM world ORDER BY name COLLATE NOCASE")
+    fun observeAllWorlds(): Flow<List<WorldEntity>>
+
+    @Query("SELECT * FROM world WHERE id = :id")
+    fun observeWorld(id: String): Flow<WorldEntity?>
+
+    @Query("SELECT * FROM world WHERE id = :id")
+    suspend fun world(id: String): WorldEntity?
+
+    @Query("SELECT * FROM project_world WHERE worldId = :worldId")
+    suspend fun links(worldId: String): List<ProjectWorldEntity>
+
+    @Query("SELECT * FROM category WHERE worldId = :worldId ORDER BY ordinal")
+    fun observeCategories(worldId: String): Flow<List<CategoryEntity>>
+
+    @Query("SELECT * FROM category WHERE worldId = :worldId ORDER BY ordinal")
+    suspend fun categories(worldId: String): List<CategoryEntity>
+
+    @Query("SELECT * FROM note WHERE worldId = :worldId ORDER BY title COLLATE NOCASE")
+    fun observeNotes(worldId: String): Flow<List<NoteEntity>>
+
+    @Query("SELECT * FROM note WHERE worldId = :worldId")
+    suspend fun notes(worldId: String): List<NoteEntity>
+
+    @Query("SELECT * FROM note WHERE id = :id")
+    fun observeNote(id: String): Flow<NoteEntity?>
+
+    @Query("SELECT * FROM note WHERE id = :id")
+    suspend fun note(id: String): NoteEntity?
+
+    @Query("SELECT n.* FROM note n JOIN note_link l ON l.toNoteId = n.id WHERE l.fromNoteId = :noteId ORDER BY n.title COLLATE NOCASE")
+    fun observeLinksFrom(noteId: String): Flow<List<NoteEntity>>
+
+    @Query("SELECT n.* FROM note n JOIN note_link l ON l.fromNoteId = n.id WHERE l.toNoteId = :noteId ORDER BY n.title COLLATE NOCASE")
+    fun observeLinksTo(noteId: String): Flow<List<NoteEntity>>
+
+    @Query("SELECT * FROM note_link WHERE fromNoteId = :noteId OR toNoteId = :noteId")
+    suspend fun linksOf(noteId: String): List<NoteLinkEntity>
+
+    @Query("SELECT * FROM tag WHERE linkedNoteId = :noteId")
+    fun observeTagsLinking(noteId: String): Flow<List<TagEntity>>
+
+    @Query("SELECT * FROM tag WHERE linkedNoteId IN (:noteIds)")
+    suspend fun tagsLinking(noteIds: List<String>): List<TagEntity>
+
+    @Query("SELECT * FROM note_tag WHERE targetId = :noteId ORDER BY ordinal")
+    fun observeNoteTags(noteId: String): Flow<List<NoteTagEntity>>
+
+    @Query("SELECT * FROM note_tag WHERE targetId IN (:noteIds)")
+    suspend fun noteTagsOf(noteIds: List<String>): List<NoteTagEntity>
+
+    /** Notes of every world a project links, for choosing a tag's reference. */
+    @Query("SELECT n.* FROM note n JOIN project_world pw ON pw.worldId = n.worldId WHERE pw.projectId = :projectId ORDER BY n.title COLLATE NOCASE")
+    fun observeProjectNotes(projectId: String): Flow<List<NoteEntity>>
+
+    @Query("UPDATE tag SET linkedNoteId = NULL WHERE linkedNoteId IN (SELECT id FROM note WHERE worldId = :worldId)")
+    suspend fun unlinkTagsFromWorldNotes(worldId: String)
+
+    @Query("DELETE FROM world WHERE id = :worldId")
+    suspend fun deleteWorld(worldId: String)
+}

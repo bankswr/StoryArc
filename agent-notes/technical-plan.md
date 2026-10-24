@@ -195,4 +195,6 @@ Deferred (from the spec): rich node content, templates, search, Markdown/PDF exp
 - Every project gets a default world. Tags are owned by either a project or a world.
 - Removing a node from its last view deletes it everywhere, after a confirmation.
 - Undo history is in-memory per project, bounded to 200 entries.
+- World library edits are recorded on the undo stack of the project they were made from. Unlinking a world from a project removes that project's uses of the world's tags and is undoable. Deleting a world deletes it everywhere, is not undoable, and clears every project's undo history.
+- Notes link only to other notes in the same world library. A note's "Create a tag for this note" makes a world-owned tag that refers to it. A node's editor lists the notes its tags refer to.
 - Manual DI instead of Hilt.

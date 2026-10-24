@@ -293,3 +293,79 @@ class TagsTest {
         assertEquals(1, repo.board.hiddenTags(v).size)
     }
 }
+
+@RunWith(AndroidJUnit4::class)
+class WorldsTest {
+    private lateinit var db: StoryDatabase
+    private lateinit var repo: StoryRepository
+    private var ids = 0
+
+    @Before
+    fun setUp() {
+        db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), StoryDatabase::class.java)
+            .allowMainThreadQueries().build()
+        repo = StoryRepository(db, clock = { 1000L }, newId = { "id${ids++}" })
+    }
+
+    @After
+    fun tearDown() = db.close()
+
+    private fun fkProblems() = db.openHelper.readableDatabase.query("PRAGMA foreign_key_check").use { it.count }
+
+    @Test
+    fun sharedWorldNotesCategoriesAndLinks() = runBlocking {
+        val p1 = repo.createProject("Book one")
+        val p2 = repo.createProject("Book two")
+        val w = repo.createWorld(p1, "Shared world")
+        repo.linkWorld(p2, w)
+        val magic = repo.createCategory(p1, w, "Magic")
+        val blood = repo.createNote(p1, w, "Bloodbinding", magic)
+        val history = repo.createNote(p1, w, "The Sundering")
+        repo.linkNotes(p1, blood, history)
+        repo.editNote(p2, blood, body = "Costs a memory.")
+        assertEquals("Costs a memory.", repo.worlds.note(blood)?.body)
+
+        // A world tag pointing at the note is visible in both projects.
+        val tag = repo.createTag(p1, "Magic: Bloodbinding", worldId = w)
+        repo.updateTag(p1, repo.tags.tag(tag)!!.copy(linkedNoteId = blood))
+        assertTrue(repo.tags.projectTags(p2).any { it.id == tag })
+
+        // Deleting the category moves its note up to uncategorized.
+        repo.deleteCategory(p1, w, magic)
+        assertNull(repo.worlds.note(blood)?.categoryId)
+
+        // Deleting the note drops its links and the tag's reference; undo restores both.
+        repo.deleteNote(p1, blood)
+        assertNull(repo.tags.tag(tag)?.linkedNoteId)
+        assertEquals(0, fkProblems())
+        repo.undo(p1)
+        assertEquals(blood, repo.tags.tag(tag)?.linkedNoteId)
+        assertEquals(1, repo.worlds.linksOf(history).size)
+    }
+
+    @Test
+    fun unlinkRemovesProjectUsesAndDeleteWorldIsClean() = runBlocking {
+        val p = repo.createProject("Saga")
+        val v = repo.projects.views(p).single().id
+        val t = repo.addTimeline(v, "A")
+        val n = repo.addNode(v, "x", Drop.Onto(t, 0))
+        val w = repo.createWorld(p, "Lore")
+        val note = repo.createNote(p, w, "Gods")
+        val worldTag = repo.createTag(p, "Divine", worldId = w)
+        val projectTag = repo.createTag(p, "Gods ref")
+        repo.updateTag(p, repo.tags.tag(projectTag)!!.copy(linkedNoteId = note))
+        repo.setTags(p, StoryRepository.TagTarget.Node(n), listOf(worldTag, projectTag))
+
+        repo.unlinkWorld(p, w)
+        assertEquals(listOf(projectTag), repo.tags.nodeTags(n).map { it.tagId })
+        assertNull(repo.tags.tag(projectTag)?.linkedNoteId)
+        repo.undo(p)
+        assertEquals(2, repo.tags.nodeTags(n).size)
+
+        repo.deleteWorld(w)
+        assertNull(repo.worlds.world(w))
+        assertEquals(listOf(projectTag), repo.tags.nodeTags(n).map { it.tagId })
+        assertEquals(0, fkProblems())
+        assertFalse(repo.undoManager(p).state.value.canUndo)
+    }
+}

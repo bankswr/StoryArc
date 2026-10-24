@@ -42,6 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.storyarc.app.data.db.TagEntity
 import com.storyarc.app.data.db.WorldEntity
+import com.storyarc.app.data.db.NoteEntity
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import com.storyarc.app.ui.common.AppAlertDialog
 import com.storyarc.app.ui.common.ColorPicker
 import com.storyarc.app.ui.common.ConfirmDialog
@@ -53,10 +57,11 @@ import kotlinx.coroutines.launch
 /** Create, edit and delete the tags a project can use (its own and its world libraries'). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TagsScreen(projectId: String, onBack: () -> Unit) {
+fun TagsScreen(projectId: String, onBack: () -> Unit, onOpenNote: (String) -> Unit = {}) {
     val repo = appContainer().repository
     val tags by repo.tags.observeProjectTags(projectId).collectAsStateWithLifecycle(emptyList())
     val worlds by repo.projects.observeWorlds(projectId).collectAsStateWithLifecycle(emptyList())
+    val notes by repo.worlds.observeProjectNotes(projectId).collectAsStateWithLifecycle(emptyList())
     val undo by repo.undoManager(projectId).state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var creating by rememberSaveable { mutableStateOf(false) }
@@ -87,7 +92,9 @@ fun TagsScreen(projectId: String, onBack: () -> Unit) {
             items(tags, key = { it.id }) { t ->
                 ListItem(
                     headlineContent = { TagLabel(t) },
-                    supportingContent = { Text(ownerName(t, worlds)) },
+                    supportingContent = {
+                        Text(ownerName(t, worlds) + (t.linkedNoteId?.let { id -> " · refers to " + (notes.find { it.id == id }?.title ?: "a note") } ?: ""))
+                    },
                     modifier = Modifier.clickable { editing = t },
                 )
                 HorizontalDivider()
@@ -96,16 +103,27 @@ fun TagsScreen(projectId: String, onBack: () -> Unit) {
     }
 
     if (creating) {
-        TagDialog(null, worlds, onDismiss = { creating = false }) { name, color, worldId ->
+        TagDialog(null, worlds, notes, onDismiss = { creating = false }) { name, color, worldId, noteId ->
             creating = false
-            scope.launch { repo.createTag(projectId, name, color, worldId) }
+            scope.launch {
+                val id = repo.createTag(projectId, name, color, worldId)
+                if (noteId != null) repo.tags.tag(id)?.let { repo.updateTag(projectId, it.copy(linkedNoteId = noteId)) }
+            }
         }
     }
     editing?.let { t ->
-        TagDialog(t, worlds, onDismiss = { editing = null }, onDelete = { editing = null; deleting = t }) { name, color, worldId ->
+        TagDialog(
+            t, worlds, notes,
+            onDismiss = { editing = null },
+            onDelete = { editing = null; deleting = t },
+            onOpenNote = { editing = null; onOpenNote(it) },
+        ) { name, color, worldId, noteId ->
             editing = null
             scope.launch {
-                repo.updateTag(projectId, t.copy(name = name, color = color, worldId = worldId, projectId = if (worldId == null) projectId else null))
+                repo.updateTag(
+                    projectId,
+                    t.copy(name = name, color = color, worldId = worldId, projectId = if (worldId == null) projectId else null, linkedNoteId = noteId),
+                )
             }
         }
     }
@@ -127,13 +145,17 @@ private fun ownerName(t: TagEntity, worlds: List<WorldEntity>) =
 private fun TagDialog(
     tag: TagEntity?,
     worlds: List<WorldEntity>,
+    notes: List<NoteEntity>,
     onDismiss: () -> Unit,
     onDelete: (() -> Unit)? = null,
-    onSave: (String, Int?, String?) -> Unit,
+    onOpenNote: (String) -> Unit = {},
+    onSave: (String, Int?, String?, String?) -> Unit,
 ) {
     var name by remember { mutableStateOf(tag?.name.orEmpty()) }
     var color by remember { mutableStateOf(tag?.color) }
     var worldId by remember { mutableStateOf(tag?.worldId) }
+    var noteId by remember { mutableStateOf(tag?.linkedNoteId) }
+    var noteMenu by remember { mutableStateOf(false) }
     AppAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (tag == null) "New tag" else "Edit tag") },
@@ -148,9 +170,23 @@ private fun TagDialog(
                         worlds.forEach { w -> OwnerChoice("World library: ${w.name}", worldId == w.id) { worldId = w.id } }
                     }
                 }
+                if (notes.isNotEmpty()) {
+                    Text("Refers to note", style = MaterialTheme.typography.labelLarge)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box {
+                            AssistChip(onClick = { noteMenu = true }, label = { Text(notes.find { it.id == noteId }?.title ?: "None") })
+                            DropdownMenu(noteMenu, onDismissRequest = { noteMenu = false }) {
+                                DropdownMenuItem(text = { Text("None") }, onClick = { noteMenu = false; noteId = null })
+                                notes.forEach { n -> DropdownMenuItem(text = { Text(n.title) }, onClick = { noteMenu = false; noteId = n.id }) }
+                            }
+                        }
+                        val linked = noteId
+                        if (linked != null && tag?.linkedNoteId == linked) TextButton(onClick = { onOpenNote(linked) }) { Text("Open") }
+                    }
+                }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(name.trim(), color, worldId) }, enabled = name.isNotBlank()) { Text("Save") } },
+        confirmButton = { TextButton(onClick = { onSave(name.trim(), color, worldId, noteId) }, enabled = name.isNotBlank()) { Text("Save") } },
         dismissButton = {
             Row {
                 if (onDelete != null) TextButton(onClick = onDelete) { Text("Delete") }

@@ -1,6 +1,11 @@
 package com.storyarc.app.ui.board
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material3.Icon
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,10 +51,26 @@ private fun TagsAndColor(
     color: Int?,
     target: TagTarget,
     colorTarget: ColorTarget,
+    onOpenNote: (String) -> Unit,
 ) {
     val all by vm.projectTags.collectAsStateWithLifecycle(emptyList())
     var picking by remember { mutableStateOf(false) }
     EditorSection("Tags") { TagChips(assigned, ui.tags, onEdit = { picking = true }) }
+    val references = assigned.mapNotNull { ui.tags[it]?.linkedNoteId }.distinct()
+    if (references.isNotEmpty()) {
+        val notes by vm.projectNotes.collectAsStateWithLifecycle(emptyList())
+        EditorSection("References") {
+            references.forEach { id ->
+                val note = notes.find { it.id == id } ?: return@forEach
+                ListItem(
+                    headlineContent = { Text(note.title) },
+                    supportingContent = note.body.takeIf { it.isNotBlank() }?.let { b -> { Text(b, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
+                    leadingContent = { Icon(Icons.AutoMirrored.Filled.Notes, null) },
+                    modifier = Modifier.clickable { onOpenNote(id) },
+                )
+            }
+        }
+    }
     EditorSection(if (color == null && assigned.isNotEmpty()) "Color (from primary tag)" else "Color") {
         ColorPicker(color, { vm.setColor(colorTarget, it) }, noneLabel = "Use primary tag color")
     }
@@ -66,7 +87,14 @@ private fun TagsAndColor(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
+fun NodeEditorSheet(
+    vm: BoardViewModel,
+    nodeId: String,
+    ui: BoardUi,
+    onDismiss: () -> Unit,
+    onSelect: (String) -> Unit,
+    onOpenNote: (String) -> Unit,
+) {
     val node = ui.nodes.getValue(nodeId)
     var text by remember(nodeId) { mutableStateOf(node.text) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -85,7 +113,7 @@ fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onDismiss: 
                 label = { Text("Note") },
                 modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
             )
-            TagsAndColor(vm, ui, ui.nodeTags[nodeId].orEmpty(), node.color, TagTarget.Node(nodeId), ColorTarget.Node(nodeId))
+            TagsAndColor(vm, ui, ui.nodeTags[nodeId].orEmpty(), node.color, TagTarget.Node(nodeId), ColorTarget.Node(nodeId), onOpenNote)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = {
                     scope.launch {
@@ -114,7 +142,7 @@ fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onDismiss: 
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MarkerSheet(vm: BoardViewModel, ui: BoardUi, markerId: String, onDismiss: () -> Unit) {
+fun MarkerSheet(vm: BoardViewModel, ui: BoardUi, markerId: String, onDismiss: () -> Unit, onOpenNote: (String) -> Unit) {
     val marker = ui.markers.getValue(markerId)
     var label by remember(markerId) { mutableStateOf(marker.label) }
     LaunchedEffect(markerId) { vm.breakCoalescing() }
@@ -130,7 +158,7 @@ fun MarkerSheet(vm: BoardViewModel, ui: BoardUi, markerId: String, onDismiss: ()
                 label = { Text("Marker label") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            TagsAndColor(vm, ui, ui.markerTags[markerId].orEmpty(), marker.color, TagTarget.Marker(markerId), ColorTarget.Marker(ui.view.id, markerId))
+            TagsAndColor(vm, ui, ui.markerTags[markerId].orEmpty(), marker.color, TagTarget.Marker(markerId), ColorTarget.Marker(ui.view.id, markerId), onOpenNote)
             Text("Long-press the marker to move it.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { vm.removeMarker(markerId); onDismiss() }) { Text("Delete marker") }
         }
@@ -139,7 +167,7 @@ fun MarkerSheet(vm: BoardViewModel, ui: BoardUi, markerId: String, onDismiss: ()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GroupSheet(vm: BoardViewModel, ui: BoardUi, groupId: String, onDismiss: () -> Unit) {
+fun GroupSheet(vm: BoardViewModel, ui: BoardUi, groupId: String, onDismiss: () -> Unit, onOpenNote: (String) -> Unit) {
     val group = ui.groups.getValue(groupId)
     var label by remember(groupId) { mutableStateOf(group.label) }
     LaunchedEffect(groupId) { vm.breakCoalescing() }
@@ -155,7 +183,7 @@ fun GroupSheet(vm: BoardViewModel, ui: BoardUi, groupId: String, onDismiss: () -
                 label = { Text("Group name") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            TagsAndColor(vm, ui, ui.groupTags[groupId].orEmpty(), group.color, TagTarget.Group(groupId), ColorTarget.Group(ui.view.id, groupId))
+            TagsAndColor(vm, ui, ui.groupTags[groupId].orEmpty(), group.color, TagTarget.Group(groupId), ColorTarget.Group(ui.view.id, groupId), onOpenNote)
             Text("Long-press the group's bar to move the whole group.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { vm.ungroup(groupId); onDismiss() }) { Text("Ungroup") }
         }

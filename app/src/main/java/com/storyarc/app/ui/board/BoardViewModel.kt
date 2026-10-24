@@ -60,6 +60,7 @@ class BoardViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val projectTags = repo.tags.observeProjectTags(projectId)
+    val projectNotes = repo.worlds.observeProjectNotes(projectId)
 
     private suspend fun load(): BoardUi? {
         val view = repo.projects.view(viewId) ?: return null

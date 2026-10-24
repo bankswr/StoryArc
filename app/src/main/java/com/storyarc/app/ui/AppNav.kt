@@ -10,6 +10,8 @@ import com.storyarc.app.ui.project.ProjectHomeScreen
 import com.storyarc.app.ui.projects.ProjectsScreen
 import com.storyarc.app.ui.settings.SettingsScreen
 import com.storyarc.app.ui.tags.TagsScreen
+import com.storyarc.app.ui.world.NoteScreen
+import com.storyarc.app.ui.world.WorldScreen
 import com.storyarc.app.ui.timelines.TimelinesScreen
 import kotlinx.serialization.Serializable
 
@@ -19,6 +21,8 @@ import kotlinx.serialization.Serializable
 @Serializable data class BoardRoute(val projectId: String, val viewId: String)
 @Serializable data class TimelinesRoute(val projectId: String, val viewId: String)
 @Serializable data class TagsRoute(val projectId: String)
+@Serializable data class WorldRoute(val projectId: String, val worldId: String)
+@Serializable data class NoteRoute(val projectId: String, val noteId: String)
 
 @Composable
 fun AppNav() {
@@ -37,6 +41,7 @@ fun AppNav() {
                 onBack = { nav.popBackStack() },
                 onOpenView = { nav.navigate(BoardRoute(r.projectId, it)) },
                 onTags = { nav.navigate(TagsRoute(r.projectId)) },
+                onOpenWorld = { nav.navigate(WorldRoute(r.projectId, it)) },
             )
         }
         composable<BoardRoute> { entry ->
@@ -47,10 +52,20 @@ fun AppNav() {
                 onBack = { nav.popBackStack() },
                 onTimelines = { nav.navigate(TimelinesRoute(r.projectId, r.viewId)) },
                 onSwitchView = { nav.navigate(BoardRoute(r.projectId, it)) { popUpTo<BoardRoute> { inclusive = true } } },
+                onOpenNote = { nav.navigate(NoteRoute(r.projectId, it)) },
             )
         }
         composable<TagsRoute> { entry ->
-            TagsScreen(entry.toRoute<TagsRoute>().projectId, onBack = { nav.popBackStack() })
+            val r = entry.toRoute<TagsRoute>()
+            TagsScreen(r.projectId, onBack = { nav.popBackStack() }, onOpenNote = { nav.navigate(NoteRoute(r.projectId, it)) })
+        }
+        composable<WorldRoute> { entry ->
+            val r = entry.toRoute<WorldRoute>()
+            WorldScreen(r.projectId, r.worldId, onBack = { nav.popBackStack() }, onOpenNote = { nav.navigate(NoteRoute(r.projectId, it)) })
+        }
+        composable<NoteRoute> { entry ->
+            val r = entry.toRoute<NoteRoute>()
+            NoteScreen(r.projectId, r.noteId, onBack = { nav.popBackStack() }, onOpenNote = { nav.navigate(NoteRoute(r.projectId, it)) })
         }
         composable<TimelinesRoute> { entry ->
             val r = entry.toRoute<TimelinesRoute>()
