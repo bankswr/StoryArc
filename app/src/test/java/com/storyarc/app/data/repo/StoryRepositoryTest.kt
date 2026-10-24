@@ -179,3 +179,69 @@ class StoryRepositoryTest {
         }
     }
 }
+
+@RunWith(AndroidJUnit4::class)
+class ViewsTest {
+    private lateinit var db: StoryDatabase
+    private lateinit var repo: StoryRepository
+    private var ids = 0
+
+    @Before
+    fun setUp() {
+        db = Room.inMemoryDatabaseBuilder(ApplicationProvider.getApplicationContext(), StoryDatabase::class.java)
+            .allowMainThreadQueries().build()
+        repo = StoryRepository(db, clock = { 1000L }, newId = { "id${ids++}" })
+    }
+
+    @After
+    fun tearDown() = db.close()
+
+    @Test
+    fun importedNodesAreSharedButPositionedIndependently() = runBlocking {
+        val p = repo.createProject("Saga")
+        val main = repo.projects.views(p).single().id
+        val t = repo.addTimeline(main, "A")
+        val a = repo.addNode(main, "a", Drop.Onto(t, 0))
+        val b = repo.addNode(main, "b", Drop.Onto(t, 1))
+        repo.createGroup(main, listOf(a, b), "pair")
+        repo.addMarker(main, "Day 1", 0)
+
+        val reading = repo.createView(p, "Reading order", from = main, import = StoryRepository.ViewImport.TIMELINES_AND_NODES)
+        assertEquals(2, repo.board.placements(reading).size)
+        assertEquals(1, repo.board.groups(reading).size)
+        assertEquals(1, repo.board.markers(reading).size)
+        assertTrue(repo.board.markers(reading).single().id != repo.board.markers(main).single().id)
+
+        // Moving in one view leaves the other alone; editing text shows in both.
+        repo.move(reading, Item.Node(b), Drop.Between(t, 1))
+        assertEquals(2, repo.board.placements(main).single { it.nodeId == b }.slot)
+        repo.updateNode(repo.projects.node(a)!!.copy(text = "A!"))
+        assertEquals("A!", repo.board.nodesInView(reading).single { it.id == a }.text)
+
+        // Removing from one view keeps the node; removing from the last deletes it.
+        assertFalse(repo.isLastPlacement(reading, a))
+        repo.removeNodeFromView(reading, a)
+        assertEquals("A!", repo.projects.node(a)?.text)
+        assertTrue(repo.isLastPlacement(main, a))
+    }
+
+    @Test
+    fun timelinesOnlyImportAndDeleteViewWithUndo() = runBlocking {
+        val p = repo.createProject("Saga")
+        val main = repo.projects.views(p).single().id
+        val t = repo.addTimeline(main, "A")
+        repo.addNode(main, "a", Drop.Onto(t, 0))
+        val second = repo.createView(p, "Second", from = main, import = StoryRepository.ViewImport.TIMELINES)
+        assertEquals(listOf(t), repo.board.viewTimelines(second).map { it.timelineId })
+        assertEquals(0, repo.board.placements(second).size)
+        val n = repo.addNode(second, "only here", Drop.Onto(t, 0))
+
+        repo.deleteView(second)
+        assertNull(repo.projects.node(n))
+        assertEquals(1, repo.projects.views(p).size)
+        assertTrue(repo.projects.timeline(t) != null)
+        repo.undo(p)
+        assertEquals("only here", repo.projects.node(n)?.text)
+        assertEquals(2, repo.projects.views(p).size)
+    }
+}

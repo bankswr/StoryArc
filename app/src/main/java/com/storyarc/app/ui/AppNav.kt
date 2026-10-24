@@ -34,7 +34,13 @@ fun AppNav() {
         }
         composable<BoardRoute> { entry ->
             val r = entry.toRoute<BoardRoute>()
-            BoardScreen(r.projectId, r.viewId, onBack = { nav.popBackStack() }, onTimelines = { nav.navigate(TimelinesRoute(r.projectId, r.viewId)) })
+            BoardScreen(
+                r.projectId,
+                r.viewId,
+                onBack = { nav.popBackStack() },
+                onTimelines = { nav.navigate(TimelinesRoute(r.projectId, r.viewId)) },
+                onSwitchView = { nav.navigate(BoardRoute(r.projectId, it)) { popUpTo<BoardRoute> { inclusive = true } } },
+            )
         }
         composable<TimelinesRoute> { entry ->
             val r = entry.toRoute<TimelinesRoute>()

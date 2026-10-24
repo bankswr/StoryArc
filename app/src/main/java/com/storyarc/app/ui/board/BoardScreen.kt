@@ -12,6 +12,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
@@ -54,7 +58,13 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelines: () -> Unit) {
+fun BoardScreen(
+    projectId: String,
+    viewId: String,
+    onBack: () -> Unit,
+    onTimelines: () -> Unit,
+    onSwitchView: (String) -> Unit = {},
+) {
     val repo = appContainer().repository
     val vm = viewModel(key = viewId) { BoardViewModel(repo, projectId, viewId) }
     val ui by vm.ui.collectAsStateWithLifecycle()
@@ -68,6 +78,7 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
     // Selection mode: taps toggle nodes instead of opening them.
     var selection by rememberSaveable { mutableStateOf<List<String>?>(null) }
     var namingGroup by rememberSaveable { mutableStateOf(false) }
+    val views by repo.projects.observeViews(projectId).collectAsStateWithLifecycle(emptyList())
 
     Scaffold(
         topBar = {
@@ -89,7 +100,7 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
                     },
                 )
             } else TopAppBar(
-                title = { Text(ui?.view?.name ?: "") },
+                title = { ViewSwitcher(ui?.view?.name.orEmpty(), views, viewId, onSwitchView) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
                     UndoRedoActions(undo, vm::undo, vm::redo)
@@ -291,4 +302,28 @@ private fun GroupDialog(label: String, onDismiss: () -> Unit, onSave: (String) -
             }
         },
     )
+}
+
+/** The view name as a title that opens a menu of the project's other views. */
+@Composable
+private fun ViewSwitcher(name: String, views: List<com.storyarc.app.data.db.ViewEntity>, current: String, onSwitch: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier.clickable(enabled = views.size > 1, onClickLabel = "Switch view") { open = true },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (views.size > 1) Icon(Icons.Default.ArrowDropDown, null)
+        }
+        DropdownMenu(open, onDismissRequest = { open = false }) {
+            views.forEach { v ->
+                DropdownMenuItem(
+                    text = { Text(v.name) },
+                    enabled = v.id != current,
+                    onClick = { open = false; onSwitch(v.id) },
+                )
+            }
+        }
+    }
 }

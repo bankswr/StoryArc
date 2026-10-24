@@ -189,7 +189,8 @@ Deferred (from the spec): rich node content, templates, search, Markdown/PDF exp
 - Slots are implicit dense indices, not stored rows.
 - Group contiguity means a consecutive run in the timeline's node order; empty slots inside a group are allowed.
 - A node dropped inside a group's run joins the innermost spanning group.
-- Markers are per-view and are copied when a view is created by import.
+- Markers and groups are per-view and are copied (new ids, tags included) when a view is created with "Timelines and nodes". View creation offers Nothing / Timelines / Timelines and nodes.
+- Deleting a view also deletes nodes and timelines no other view uses. A project always keeps at least one view.
 - Every project gets a default world. Tags are owned by either a project or a world.
 - Removing a node from its last view deletes it everywhere, after a confirmation.
 - Undo history is in-memory per project, bounded to 200 entries.

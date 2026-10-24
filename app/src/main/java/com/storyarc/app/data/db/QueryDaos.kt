@@ -77,6 +77,9 @@ interface BoardDao {
     @Query("SELECT * FROM group_tag WHERE targetId IN (:groupIds)")
     suspend fun groupTags(groupIds: List<String>): List<GroupTagEntity>
 
+    @Query("SELECT * FROM view_hidden_tag WHERE viewId = :viewId")
+    suspend fun hiddenTags(viewId: String): List<ViewHiddenTagEntity>
+
     /** Emits whenever any layout or content row of the view changes; the payload is unused. */
     @Query(
         """SELECT (SELECT COUNT(*) FROM placement WHERE viewId = :viewId) +

@@ -244,4 +244,75 @@ class StoryRepository(
     suspend fun ungroup(viewId: String, groupId: String) = lock.withLock {
         boardEdit(viewId, "Ungroup") { it.ungroup(groupId) }
     }
+
+    // --- Views (undoable) ---
+
+    /** What a new view starts with, copied from an existing view. */
+    enum class ViewImport { NOTHING, TIMELINES, TIMELINES_AND_NODES }
+
+    /**
+     * Creates a view. Imported timelines and nodes are shared instances (same rows, new
+     * positions); markers and groups are positional and are copied with new ids.
+     */
+    suspend fun createView(projectId: String, name: String, from: String? = null, import: ViewImport = ViewImport.NOTHING): String =
+        lock.withLock {
+            val view = ViewEntity(newId(), projectId, name, projects.views(projectId).size)
+            val rows = buildList<Any> {
+                add(view)
+                if (from != null && import != ViewImport.NOTHING) {
+                    val src = ViewRows.load(board, from)
+                    src.timelines.forEach { add(it.copy(viewId = view.id)) }
+                    if (import == ViewImport.TIMELINES_AND_NODES) {
+                        val groupIds = src.groups.associate { it.id to newId() }
+                        src.groups.forEach { add(it.copy(id = groupIds.getValue(it.id), viewId = view.id, parentId = it.parentId?.let(groupIds::getValue))) }
+                        src.placements.forEach { add(it.copy(viewId = view.id, groupId = it.groupId?.let(groupIds::getValue))) }
+                        board.groupTags(src.groups.map { it.id }).forEach { add(it.copy(targetId = groupIds.getValue(it.targetId))) }
+                        val markerIds = src.markers.associate { it.id to newId() }
+                        src.markers.forEach { add(it.copy(id = markerIds.getValue(it.id), viewId = view.id)) }
+                        board.markerTags(src.markers.map { it.id }).forEach { add(it.copy(targetId = markerIds.getValue(it.targetId))) }
+                    }
+                }
+            }
+            perform(projectId, ChangeSet("Create view", rows.map { Change(null, it) }))
+            view.id
+        }
+
+    suspend fun renameView(viewId: String, name: String) = lock.withLock {
+        val old = requireNotNull(projects.view(viewId))
+        perform(old.projectId, ChangeSet("Rename view", listOf(Change(old, old.copy(name = name)))))
+    }
+
+    /**
+     * Deletes a view with its layout. Nodes and timelines used by no other view are deleted
+     * too. A project always keeps at least one view.
+     */
+    suspend fun deleteView(viewId: String) = lock.withLock {
+        val view = requireNotNull(projects.view(viewId))
+        val siblings = projects.views(view.projectId)
+        require(siblings.size > 1) { "a project needs at least one view" }
+        val rows = ViewRows.load(board, viewId)
+        val changes = buildList {
+            rows.placements.forEach { p ->
+                add(Change(p, null))
+                addAll(orphanDeletes(p.nodeId, viewId))
+            }
+            rows.timelines.forEach { vt ->
+                add(Change(vt, null))
+                if (board.viewTimelinesOf(vt.timelineId).all { it.viewId == viewId }) {
+                    add(Change(requireNotNull(projects.timeline(vt.timelineId)), null))
+                }
+            }
+            board.markerTags(rows.markers.map { it.id }).forEach { add(Change(it, null)) }
+            board.groupTags(rows.groups.map { it.id }).forEach { add(Change(it, null)) }
+            rows.markers.forEach { add(Change(it, null)) }
+            rows.groups.forEach { add(Change(it, null)) }
+            board.hiddenTags(viewId).forEach { add(Change(it, null)) }
+            add(Change(view, null))
+            // Keep remaining view ordinals dense.
+            siblings.filter { it.id != viewId }.sortedBy { it.ordinal }.forEachIndexed { i, v ->
+                if (v.ordinal != i) add(Change(v, v.copy(ordinal = i)))
+            }
+        }
+        perform(view.projectId, ChangeSet("Delete view", changes))
+    }
 }
