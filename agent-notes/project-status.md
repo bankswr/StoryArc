@@ -16,6 +16,7 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 | M9 | World libraries. |
 | M10 | Backup and restore. |
 | M11 | TalkBack move actions on cards and markers; a non-collapsing drag preview, so columns don't shift under the finger; a large-board performance test (~1 ms per move at 2,000 nodes). |
+| After M11 | Horizontal/vertical board layout setting (`VerticalBoardTest`). |
 
 ## How it's verified
 

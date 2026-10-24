@@ -174,6 +174,7 @@ fun BoardScreen(
                         }
                     },
                     selected = selection.orEmpty().toSet(),
+                    vertical = settings.verticalBoard,
                     onTap = { hit ->
                         val sel = selection
                         if (sel != null) {

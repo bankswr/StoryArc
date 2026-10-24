@@ -12,6 +12,8 @@ data class Settings(
     /** Whether a dragged item must dwell at a marker before crossing it. */
     val barrierDelayEnabled: Boolean = true,
     val barrierDelayMs: Long = 500,
+    /** Board layout: slots top to bottom with timelines as columns, instead of left to right. */
+    val verticalBoard: Boolean = false,
 )
 
 private val Context.dataStore by preferencesDataStore("settings")
@@ -19,9 +21,10 @@ private val Context.dataStore by preferencesDataStore("settings")
 class SettingsRepository(private val context: Context) {
     private val delayEnabled = booleanPreferencesKey("barrier_delay_enabled")
     private val delayMs = longPreferencesKey("barrier_delay_ms")
+    private val vertical = booleanPreferencesKey("board_vertical")
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
-        Settings(p[delayEnabled] ?: true, p[delayMs] ?: 500)
+        Settings(p[delayEnabled] ?: true, p[delayMs] ?: 500, p[vertical] ?: false)
     }
 
     suspend fun setBarrierDelayEnabled(enabled: Boolean) {
@@ -30,5 +33,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setBarrierDelayMs(ms: Long) {
         context.dataStore.edit { it[delayMs] = ms }
+    }
+
+    suspend fun setVerticalBoard(enabled: Boolean) {
+        context.dataStore.edit { it[vertical] = enabled }
     }
 }

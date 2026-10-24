@@ -127,7 +127,9 @@ The engine is tested with example-based unit tests for each rule, plus seeded ra
 7. **Settings**: marker-crossing delay toggle, delay duration, and backup/restore.
 
 ### Board canvas
-- Timelines are horizontal rows; slots are columns that scroll left to right. Markers render as full-height vertical bars in their own column.
+- Two layouts, chosen in Settings (`Settings.verticalBoard`). Horizontal (default): timelines are rows, slots run left to right, markers are full-height bars, the timeline header is a column on the left. Vertical: timelines are columns, slots run top to bottom, markers are full-width bands, the header is a row along the top.
+- The canvas works in board coordinates (along the time axis, across timelines); `BoardAxes` maps them to the screen. `BoardGeometry`, `resolveTarget`, hit testing and `BoardViewport` (`scrollAlong`/`scrollAcross`) are all in board coordinates, so the drag logic is shared and the scroll position survives a layout switch. Switching has no transition animation (by request).
+- Slot length and timeline thickness swap between layouts (`BoardDims.slot/row`), so node cards are 132×88dp in both. Group bars sit on each timeline's trailing edge: the bottom of a row, or the right side of a column.
 - The timeline header column on the left is pinned, and so is the marker/slot header strip on top.
 - 2D scrolling plus pinch zoom, which scales slot width and row height. Only the visible cells are composed, using a custom 2D `LazyLayout`. Portrait and landscape share the same layout logic.
 - Tag filters never affect structure: an item carrying any hidden tag is drawn faded (about 20% opacity) and stays interactive. Collapse looks at all timelines, including hidden ones.
@@ -144,7 +146,7 @@ The engine is tested with example-based unit tests for each rule, plus seeded ra
 - **Marker barrier**: when the pointer crosses a marker column, the target clamps to the near side. After a 500 ms dwell, a haptic tick fires and the crossing unlocks. With the setting off, items cross immediately.
 
 ### Settings
-DataStore Preferences: `barrierDelayEnabled` (default true) and `barrierDelayMs` (default 500).
+DataStore Preferences: `barrierDelayEnabled` (default true), `barrierDelayMs` (default 500) and `board_vertical` (default false).
 
 ## Backup and restore
 

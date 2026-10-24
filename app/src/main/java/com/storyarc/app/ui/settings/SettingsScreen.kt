@@ -9,6 +9,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -51,6 +54,24 @@ fun SettingsScreen(onBack: () -> Unit) {
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            SectionHeader("Board")
+            ListItem(
+                headlineContent = { Text("Layout") },
+                supportingContent = {
+                    Column {
+                        Text(if (settings.verticalBoard) "Timelines are columns; order runs top to bottom." else "Timelines are rows; order runs left to right.")
+                        SingleChoiceSegmentedButtonRow(Modifier.padding(top = 8.dp)) {
+                            listOf("Horizontal" to false, "Vertical" to true).forEachIndexed { i, (label, value) ->
+                                SegmentedButton(
+                                    selected = settings.verticalBoard == value,
+                                    onClick = { scope.launch { settingsRepo.setVerticalBoard(value) } },
+                                    shape = SegmentedButtonDefaults.itemShape(i, 2),
+                                ) { Text(label) }
+                            }
+                        }
+                    }
+                },
+            )
             SectionHeader("Dragging")
             ListItem(
                 headlineContent = { Text("Pause at markers") },

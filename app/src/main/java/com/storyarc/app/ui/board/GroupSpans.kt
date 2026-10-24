@@ -2,7 +2,7 @@ package com.storyarc.app.ui.board
 
 import com.storyarc.board.BoardState
 
-/** Horizontal extent of a group on its row; [depth] is 0 for top-level groups. */
+/** Extent of a group along its timeline; [depth] is 0 for top-level groups. */
 data class GroupSpan(val groupId: String, val row: Int, val first: Int, val last: Int, val depth: Int)
 
 fun groupSpans(board: BoardState): List<GroupSpan> {
@@ -16,5 +16,5 @@ fun groupSpans(board: BoardState): List<GroupSpan> {
     }
 }
 
-/** Vertical offset of a group's bar above the bottom of its row, in strip units (see BoardDims.groupStrip). */
+/** Offset of a group's bar from the trailing edge of its timeline (bottom, or right when vertical), in strip units (see BoardDims.groupStrip). */
 fun barOffsetFraction(depth: Int) = 0.2f + 0.25f * depth.coerceAtMost(3)

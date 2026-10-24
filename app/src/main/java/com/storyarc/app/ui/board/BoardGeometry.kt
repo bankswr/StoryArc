@@ -1,11 +1,30 @@
 package com.storyarc.app.ui.board
 
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import com.storyarc.board.BoardState
 
 /**
- * Pixel layout of a board's content area (excluding the pinned timeline header column).
- * Node slots are [slotWidth] wide; marker slots are the narrower [markerWidth]. One extra
- * trailing node-width column is always laid out so there is room to drop or add at the end.
+ * Maps board coordinates onto the screen. Board coordinates are (along, across): along the
+ * time axis in slot order, and across it in timeline order. A horizontal board runs slots
+ * left to right with timelines as rows; a vertical board runs slots top to bottom with
+ * timelines as columns.
+ */
+data class BoardAxes(val vertical: Boolean) {
+    /** Screen offset of an (along, across) pair. */
+    fun screen(along: Float, across: Float) = if (vertical) Offset(across, along) else Offset(along, across)
+
+    /** (along, across) of a screen offset, as x and y. */
+    fun board(p: Offset) = if (vertical) Offset(p.y, p.x) else p
+
+    fun size(along: Float, across: Float) = if (vertical) Size(across, along) else Size(along, across)
+}
+
+/**
+ * Pixel layout of a board's content area (excluding the pinned timeline header), in board
+ * coordinates: x runs along the time axis and y across timelines (see [BoardAxes]).
+ * Node slots are [slotWidth] long; marker slots are the shorter [markerWidth]. One extra
+ * trailing node-length column is always laid out so there is room to drop or add at the end.
  */
 class BoardGeometry(
     val board: BoardState,

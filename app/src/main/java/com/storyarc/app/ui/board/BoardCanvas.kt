@@ -53,7 +53,13 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.round
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.unit.dp
 import com.storyarc.app.data.db.NodeEntity
 import com.storyarc.app.data.db.TagEntity
@@ -71,14 +77,18 @@ import androidx.compose.ui.semantics.stateDescription
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
-/** Scroll position (content pixels) and zoom of a board, saved across configuration changes. */
+/**
+ * Scroll position (content pixels, in board coordinates; see [BoardAxes]) and zoom of a board,
+ * saved across configuration changes. Board coordinates keep the position when the layout
+ * switches between horizontal and vertical.
+ */
 @Stable
-class BoardViewport(scrollX: Float = 0f, scrollY: Float = 0f, zoom: Float = 1f) {
-    var scrollX by mutableFloatStateOf(scrollX)
-    var scrollY by mutableFloatStateOf(scrollY)
+class BoardViewport(scrollAlong: Float = 0f, scrollAcross: Float = 0f, zoom: Float = 1f) {
+    var scrollAlong by mutableFloatStateOf(scrollAlong)
+    var scrollAcross by mutableFloatStateOf(scrollAcross)
     var zoom by mutableFloatStateOf(zoom)
 
-    /** Leftmost slot drawn in the last layout; not state, read only by event handlers. */
+    /** First slot drawn in the last layout; not state, read only by event handlers. */
     var firstVisibleSlot = 0
         internal set
 
@@ -86,7 +96,7 @@ class BoardViewport(scrollX: Float = 0f, scrollY: Float = 0f, zoom: Float = 1f) 
         const val MIN_ZOOM = 0.5f
         const val MAX_ZOOM = 2f
         val Saver = Saver<BoardViewport, List<Float>>(
-            save = { listOf(it.scrollX, it.scrollY, it.zoom) },
+            save = { listOf(it.scrollAlong, it.scrollAcross, it.zoom) },
             restore = { BoardViewport(it[0], it[1], it[2]) },
         )
     }
@@ -104,15 +114,19 @@ sealed interface BoardHit {
     data class Group(val groupId: String) : BoardHit
 }
 
-/** Base sizes at zoom 1. */
+/**
+ * Base sizes at zoom 1. Lengths along the time axis and thicknesses across it depend on the
+ * layout so that node cards are 132×88 either way.
+ */
 object BoardDims {
-    val header = 104.dp
-    val slot = 132.dp
+    /** Thickness of the pinned timeline header: a column when horizontal, a row when vertical. */
+    fun header(vertical: Boolean) = if (vertical) 48.dp else 104.dp
+    fun slot(vertical: Boolean) = if (vertical) 88.dp else 132.dp
+    fun row(vertical: Boolean) = if (vertical) 132.dp else 88.dp
     val marker = 40.dp
-    val row = 88.dp
     val cardPadding = 4.dp
 
-    /** Band along the bottom of each row where group bars are drawn and grabbed. */
+    /** Band along the trailing edge of each timeline where group bars are drawn and grabbed. */
     val groupStrip = 16.dp
     val autoScrollEdge = 56.dp
 }
@@ -141,10 +155,13 @@ fun BoardCanvas(
     onDrop: (DragItem, DragTarget) -> Unit,
     modifier: Modifier = Modifier,
     selected: Set<String> = emptySet(),
+    vertical: Boolean = false,
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
-    val headerPx = with(density) { BoardDims.header.toPx() }
+    val axes = BoardAxes(vertical)
+    val headerDp = BoardDims.header(vertical)
+    val headerPx = with(density) { headerDp.toPx() }
     val stripPx = with(density) { BoardDims.groupStrip.toPx() } * viewport.zoom
     val edgePx = with(density) { BoardDims.autoScrollEdge.toPx() }
     val colors = MaterialTheme.colorScheme
@@ -152,9 +169,9 @@ fun BoardCanvas(
     fun geometryFor(board: BoardState) = with(density) {
         BoardGeometry(
             board,
-            slotWidth = BoardDims.slot.toPx() * viewport.zoom,
+            slotWidth = BoardDims.slot(vertical).toPx() * viewport.zoom,
             markerWidth = BoardDims.marker.toPx() * viewport.zoom,
-            rowHeight = BoardDims.row.toPx() * viewport.zoom,
+            rowHeight = BoardDims.row(vertical).toPx() * viewport.zoom,
         )
     }
 
@@ -165,8 +182,8 @@ fun BoardCanvas(
 
     val shown: BoardState = session?.preview ?: pending?.takeIf { it.first === ui.board }?.second ?: ui.board
     // Targets are always resolved against the board as it was before the drag.
-    val baseGeometry = remember(ui.board, viewport.zoom, density) { geometryFor(ui.board) }
-    val geometry = remember(shown, viewport.zoom, density) { geometryFor(shown) }
+    val baseGeometry = remember(ui.board, viewport.zoom, density, vertical) { geometryFor(ui.board) }
+    val geometry = remember(shown, viewport.zoom, density, vertical) { geometryFor(shown) }
     val baseSpans = remember(ui.board) { groupSpans(ui.board) }
     val spans = remember(shown) { groupSpans(shown) }
 
@@ -179,19 +196,26 @@ fun BoardCanvas(
     val currentOnTap by rememberUpdatedState(onTap)
 
     BoxWithConstraints(modifier.clipToBounds()) {
-        val viewW = constraints.maxWidth.toFloat() - headerPx
-        val viewH = constraints.maxHeight.toFloat()
+        // The canvas size in board coordinates; the content area excludes the header.
+        val view = axes.board(Offset(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat()))
+        val viewAlong = view.x - headerPx
+        val viewAcross = view.y
         fun clamp() {
-            viewport.scrollX = viewport.scrollX.coerceIn(0f, (geometry.contentWidth - viewW).coerceAtLeast(0f))
-            viewport.scrollY = viewport.scrollY.coerceIn(0f, (geometry.contentHeight - viewH).coerceAtLeast(0f))
+            viewport.scrollAlong = viewport.scrollAlong.coerceIn(0f, (geometry.contentWidth - viewAlong).coerceAtLeast(0f))
+            viewport.scrollAcross = viewport.scrollAcross.coerceIn(0f, (geometry.contentHeight - viewAcross).coerceAtLeast(0f))
         }
         clamp()
 
+        /** Screen position of a point given relative to the content area's scrolled origin. */
+        fun at(along: Float, across: Float) = axes.screen(headerPx + along, across)
+
+        /** A screen point relative to the content area's origin, in board coordinates. */
+        fun local(p: Offset) = axes.board(p).let { Offset(it.x - headerPx, it.y) }
+
         fun resolveAt(item: DragItem, pointer: Offset, unlocked: Set<String>): Resolution {
             val all = if (currentBarrier.delayEnabled) unlocked else currentUi.board.markers.keys
-            val cx = pointer.x - headerPx + viewport.scrollX
-            val cy = pointer.y + viewport.scrollY
-            return resolveTarget(currentUi.board, currentBase, item, cx, cy, all)
+            val q = local(pointer)
+            return resolveTarget(currentUi.board, currentBase, item, q.x + viewport.scrollAlong, q.y + viewport.scrollAcross, all)
         }
 
         fun update(s: DragSession) {
@@ -202,17 +226,23 @@ fun BoardCanvas(
             }
         }
 
-        // Edge auto-scroll direction for the current pointer, zero when the board can't move that way.
+        // Edge auto-scroll direction for a pointer, in board coordinates.
         fun depth(d: Float) = (d / edgePx).coerceIn(0f, 1f)
+        fun edgePull(p: Offset): Offset {
+            val q = local(p)
+            return Offset(
+                depth(q.x - (viewAlong - edgePx)) - depth(edgePx - q.x),
+                depth(q.y - (viewAcross - edgePx)) - depth(edgePx - q.y),
+            )
+        }
+        // Zero when the board can't move that way.
         val scrollDir: Offset = session?.let { st ->
-            val p = st.pointer
-            val dx = depth(p.x - (headerPx + viewW - edgePx)) - depth(headerPx + edgePx - p.x)
-            val dy = depth(p.y - (viewH - edgePx)) - depth(edgePx - p.y)
-            val maxX = (geometry.contentWidth - viewW).coerceAtLeast(0f)
-            val maxY = (geometry.contentHeight - viewH).coerceAtLeast(0f)
+            val d = edgePull(st.pointer)
+            val maxAlong = (geometry.contentWidth - viewAlong).coerceAtLeast(0f)
+            val maxAcross = (geometry.contentHeight - viewAcross).coerceAtLeast(0f)
             Offset(
-                if ((dx < 0 && viewport.scrollX > 0f) || (dx > 0 && viewport.scrollX < maxX)) dx else 0f,
-                if ((dy < 0 && viewport.scrollY > 0f) || (dy > 0 && viewport.scrollY < maxY)) dy else 0f,
+                if ((d.x < 0 && viewport.scrollAlong > 0f) || (d.x > 0 && viewport.scrollAlong < maxAlong)) d.x else 0f,
+                if ((d.y < 0 && viewport.scrollAcross > 0f) || (d.y > 0 && viewport.scrollAcross < maxAcross)) d.y else 0f,
             )
         } ?: Offset.Zero
         val scrolling = scrollDir != Offset.Zero
@@ -226,9 +256,9 @@ fun BoardCanvas(
                 val now = withFrameNanos { it }
                 val step = 900f * (now - last) / 1_000_000_000f
                 last = now
-                val p = s.pointer
-                viewport.scrollX += step * (depth(p.x - (headerPx + viewW - edgePx)) - depth(headerPx + edgePx - p.x))
-                viewport.scrollY += step * (depth(p.y - (viewH - edgePx)) - depth(edgePx - p.y))
+                val d = edgePull(s.pointer)
+                viewport.scrollAlong += step * d.x
+                viewport.scrollAcross += step * d.y
                 clamp()
                 update(s)
             }
@@ -251,9 +281,9 @@ fun BoardCanvas(
             unlock(s, b)
         }
 
-        val sx = viewport.scrollX
-        val sy = viewport.scrollY
-        val slots = geometry.visibleSlots(sx, sx + viewW)
+        val sx = viewport.scrollAlong
+        val sy = viewport.scrollAcross
+        val slots = geometry.visibleSlots(sx, sx + viewAlong)
         viewport.firstVisibleSlot = slots.first
         val rowOf = shown.timelines.withIndex().associate { (i, t) -> t to i }
         val dragged: Set<String> = when (val item = session?.item) {
@@ -266,27 +296,28 @@ fun BoardCanvas(
         Box(
             Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
+                .pointerInput(vertical) {
                     detectTransformGestures { centroid, pan, zoomChange, _ ->
                         val old = viewport.zoom
                         val new = (old * zoomChange).coerceIn(BoardViewport.MIN_ZOOM, BoardViewport.MAX_ZOOM)
                         val f = new / old
                         // Keep the content point under the centroid fixed while zooming.
-                        val cx = centroid.x - headerPx
-                        viewport.scrollX = (viewport.scrollX + cx) * f - cx - pan.x
-                        viewport.scrollY = (viewport.scrollY + centroid.y) * f - centroid.y - pan.y
+                        val c = local(centroid)
+                        val move = axes.board(pan)
+                        viewport.scrollAlong = (viewport.scrollAlong + c.x) * f - c.x - move.x
+                        viewport.scrollAcross = (viewport.scrollAcross + c.y) * f - c.y - move.y
                         viewport.zoom = new
                     }
                 }
-                .pointerInput(Unit) {
-                    detectTapGestures { p -> hitTest(currentUi, currentBase, currentSpans, currentStrip, p, headerPx, viewport)?.let(currentOnTap) }
+                .pointerInput(vertical) {
+                    detectTapGestures { p -> hitTest(currentUi, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport)?.let(currentOnTap) }
                 }
-                .pointerInput(Unit) {
+                .pointerInput(vertical) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val ui0 = currentUi
                         val g0 = currentBase
-                        val item = when (val hit = hitTest(ui0, g0, currentSpans, currentStrip, down.position, headerPx, viewport)) {
+                        val item = when (val hit = hitTest(ui0, g0, currentSpans, currentStrip, axes.board(down.position), headerPx, viewport)) {
                             is BoardHit.Node -> DragItem.Node(hit.nodeId)
                             is BoardHit.Marker -> DragItem.Marker(hit.markerId)
                             is BoardHit.Group -> DragItem.Group(hit.groupId)
@@ -294,7 +325,7 @@ fun BoardCanvas(
                         } ?: return@awaitEachGesture
                         val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        val origin = itemOrigin(ui0.board, g0, item, headerPx, viewport)
+                        val origin = itemOrigin(ui0.board, g0, item, viewport).let { at(it.x, it.y) }
                         val r = resolveAt(item, longPress.position, emptySet())
                         val s = DragSession(item, longPress.position, longPress.position - origin, r, preview(ui0.board, item, r.target, collapse = false))
                         session = s
@@ -324,14 +355,14 @@ fun BoardCanvas(
                     }
                 },
         ) {
-            // Grid: row stripes, slot dividers, marker columns.
+            // Grid: timeline stripes, slot dividers, marker bands.
             Canvas(Modifier.fillMaxSize()) {
                 for (r in shown.timelines.indices) {
                     val y = geometry.y(r) - sy
-                    if (r % 2 == 1) drawRect(colors.surfaceContainerLow, Offset(0f, y), Size(size.width, geometry.rowHeight))
+                    if (r % 2 == 1) drawRect(colors.surfaceContainerLow, at(-headerPx, y), axes.size(view.x, geometry.rowHeight))
                 }
                 for (s in slots) {
-                    val x = headerPx + geometry.x(s) - sx
+                    val x = geometry.x(s) - sx
                     val markerId = shown.markerAt(s)
                     if (markerId != null) {
                         val fill = when (markerId) {
@@ -340,9 +371,9 @@ fun BoardCanvas(
                             else -> ui.markerColor(markerId)?.let { Color(it) } ?: colors.primaryContainer
                         }
                         val alpha = if (ui.isHidden(ui.markerTags[markerId])) 0.25f else 1f
-                        drawRect(fill.copy(alpha = fill.alpha * alpha), Offset(x, 0f), Size(geometry.width(s), size.height))
+                        drawRect(fill.copy(alpha = fill.alpha * alpha), at(x, 0f), axes.size(geometry.width(s), view.y))
                     } else {
-                        drawLine(colors.outlineVariant, Offset(x, 0f), Offset(x, geometry.contentHeight - sy), 1f)
+                        drawLine(colors.outlineVariant, at(x, 0f), at(x, geometry.contentHeight - sy), 1f)
                     }
                 }
                 val barH = 3.dp.toPx() * viewport.zoom
@@ -350,12 +381,12 @@ fun BoardCanvas(
                     if (span.last < slots.first || span.first > slots.last) continue
                     val color = ui.groupColor(span.groupId)?.let { Color(it) } ?: colors.tertiary
                     val faded = ui.isHidden(ui.groupTags[span.groupId])
-                    val left = headerPx + geometry.x(span.first) - sx + BoardDims.cardPadding.toPx()
-                    val right = headerPx + geometry.x(span.last) + geometry.width(span.last) - sx - BoardDims.cardPadding.toPx()
+                    val start = geometry.x(span.first) - sx + BoardDims.cardPadding.toPx()
+                    val end = geometry.x(span.last) + geometry.width(span.last) - sx - BoardDims.cardPadding.toPx()
                     val y = geometry.y(span.row + 1) - sy - stripPx * barOffsetFraction(span.depth)
                     drawRoundRect(
                         color.copy(alpha = if (faded || span.groupId == (session?.item as? DragItem.Group)?.id) 0.3f else 1f),
-                        Offset(left, y - barH / 2), Size(right - left, barH),
+                        at(start, y - barH / 2), axes.size(end - start, barH),
                         androidx.compose.ui.geometry.CornerRadius(barH / 2),
                     )
                 }
@@ -367,10 +398,10 @@ fun BoardCanvas(
                 MarkerLabel(
                     ui.markers[markerId]?.label.orEmpty(),
                     ui.markerColor(markerId)?.let { readableOn(Color(it)) } ?: colors.onPrimaryContainer,
+                    rotated = !vertical,
                     Modifier
-                        .offset { IntOffset((headerPx + geometry.x(s) - sx).roundToInt(), 0) }
-                        .width(with(density) { geometry.width(s).toDp() })
-                        .fillMaxHeight()
+                        .offset { at(geometry.x(s) - sx, 0f).round() }
+                        .band(vertical, with(density) { geometry.width(s).toDp() })
                         .markerSemantics(ui, markerId, { currentOnTap(it) }, { i, t -> currentOnDrop(i, t) }),
                 )
             }
@@ -380,8 +411,9 @@ fun BoardCanvas(
                 val label = ui.groups[span.groupId]?.label.orEmpty()
                 if (label.isBlank()) continue
                 val color = ui.groupColor(span.groupId)?.let { Color(it) } ?: colors.tertiary
-                val maxW = with(density) { (geometry.x(span.last) + geometry.width(span.last) - geometry.x(span.first)).toDp() - 24.dp }
-                // A chip sitting on the group's bar.
+                val maxLength = with(density) { (geometry.x(span.last) + geometry.width(span.last) - geometry.x(span.first)).toDp() - 24.dp }
+                    .coerceAtLeast(0.dp)
+                // A chip sitting on the group's bar, reading along it.
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,
@@ -392,19 +424,24 @@ fun BoardCanvas(
                         .layout { m, c ->
                             val p = m.measure(c)
                             layout(p.width, p.height) {
-                                val x = headerPx + geometry.x(span.first) - sx + 12.dp.toPx()
                                 val barY = geometry.y(span.row + 1) - sy - stripPx * barOffsetFraction(span.depth)
-                                p.place(x.roundToInt(), (barY - p.height / 2f).roundToInt())
+                                val thickness = if (vertical) p.width else p.height
+                                p.place((at(geometry.x(span.first) - sx + 12.dp.toPx(), barY - thickness / 2f)).round())
                             }
                         }
-                        .widthIn(max = maxW.coerceAtLeast(0.dp))
+                        .then(if (vertical) Modifier.heightIn(max = maxLength).vertical() else Modifier.widthIn(max = maxLength))
                         .background(color, RoundedCornerShape(4.dp))
                         .padding(horizontal = 4.dp),
                 )
             }
 
-            val cardW = with(density) { geometry.slotWidth.toDp() }
-            val cardH = with(density) { geometry.rowHeight.toDp() }
+            val cardSize = with(density) { axes.size(geometry.slotWidth, geometry.rowHeight).toDpSize() }
+            val cardPadding = PaddingValues(
+                start = BoardDims.cardPadding,
+                top = BoardDims.cardPadding,
+                end = if (vertical) BoardDims.groupStrip * viewport.zoom else BoardDims.cardPadding,
+                bottom = if (vertical) BoardDims.cardPadding else BoardDims.groupStrip * viewport.zoom,
+            )
             for ((nodeId, cell) in shown.placements) {
                 if (cell.slot !in (slots.first - 1)..(slots.last + 1)) continue
                 val node = ui.nodes[nodeId] ?: continue
@@ -423,10 +460,10 @@ fun BoardCanvas(
                                 // The ghost marks the landing cell exactly; everything else glides.
                                 val x = geometry.xAt(if (ghost) cell.slot.toFloat() else slotPos)
                                 val y = (if (ghost) row.toFloat() else rowPos) * geometry.rowHeight
-                                IntOffset((headerPx + x - sx).roundToInt(), (y - sy).roundToInt())
+                                at(x - sx, y - sy).round()
                             }
-                            .size(cardW, cardH)
-                            .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom)
+                            .size(cardSize)
+                            .padding(cardPadding)
                             .nodeSemantics(ui, nodeId, { currentOnTap(it) }, { i, t -> currentOnDrop(i, t) }),
                         ghost = ghost,
                         selected = nodeId in selected,
@@ -434,23 +471,25 @@ fun BoardCanvas(
                 }
             }
 
-            // Pinned timeline header column.
-            Box(Modifier.width(BoardDims.header).fillMaxHeight().background(colors.surfaceContainer)) {
+            // Pinned timeline header: a column on the left, or a row along the top when vertical.
+            val headerCell = with(density) { axes.size(headerPx, geometry.rowHeight).toDpSize() }
+            val colorEdge = with(density) { axes.size(4.dp.toPx(), geometry.rowHeight).toDpSize() }
+            Box(Modifier.band(vertical, headerDp).background(colors.surfaceContainer)) {
                 for ((r, t) in ui.timelines.withIndex()) {
                     Box(
                         Modifier
-                            .offset { IntOffset(0, (geometry.y(r) - sy).roundToInt()) }
-                            .size(BoardDims.header, cardH)
+                            .offset { axes.screen(0f, geometry.y(r) - sy).round() }
+                            .size(headerCell)
                             .padding(horizontal = 8.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = if (vertical) 2 else 3, overflow = TextOverflow.Ellipsis)
                     }
                     t.color?.let { c ->
                         Box(
                             Modifier
-                                .offset { IntOffset(0, (geometry.y(r) - sy).roundToInt()) }
-                                .size(4.dp, cardH)
+                                .offset { axes.screen(0f, geometry.y(r) - sy).round() }
+                                .size(colorEdge)
                                 .background(Color(c)),
                         )
                     }
@@ -466,17 +505,16 @@ fun BoardCanvas(
                             node,
                             color = ui.nodeColor(node.id),
                             modifier = Modifier
-                                .offset { IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()) }
-                                .size(cardW, cardH)
-                                .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
+                                .offset { topLeft.round() }
+                                .size(cardSize)
+                                .padding(cardPadding),
                             lifted = true,
                         )
                     }
                     is DragItem.Marker -> Box(
                         Modifier
-                            .offset { IntOffset(topLeft.x.roundToInt(), 0) }
-                            .width(with(density) { geometry.markerWidth.toDp() })
-                            .fillMaxHeight()
+                            .offset { axes.screen(axes.board(topLeft).x, 0f).round() }
+                            .band(vertical, with(density) { geometry.markerWidth.toDp() })
                             .background(colors.primary.copy(alpha = 0.85f)),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -486,7 +524,7 @@ fun BoardCanvas(
                             style = MaterialTheme.typography.labelLarge,
                             maxLines = 1,
                             softWrap = false,
-                            modifier = Modifier.vertical(),
+                            modifier = if (vertical) Modifier else Modifier.vertical(),
                         )
                     }
                     is DragItem.Group -> {
@@ -495,14 +533,14 @@ fun BoardCanvas(
                         val first = members.firstOrNull()?.let { ui.board.placements.getValue(it).slot } ?: 0
                         for (m in members) {
                             val node = ui.nodes[m] ?: continue
-                            val dx = baseGeometry.x(ui.board.placements.getValue(m).slot) - baseGeometry.x(first)
+                            val shift = axes.screen(baseGeometry.x(ui.board.placements.getValue(m).slot) - baseGeometry.x(first), 0f)
                             NodeCard(
                                 node,
                                 color = ui.nodeColor(m),
                                 modifier = Modifier
-                                    .offset { IntOffset((topLeft.x + dx).roundToInt(), topLeft.y.roundToInt()) }
-                                    .size(cardW, cardH)
-                                    .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
+                                    .offset { (topLeft + shift).round() }
+                                    .size(cardSize)
+                                    .padding(cardPadding),
                                 lifted = true,
                             )
                         }
@@ -512,6 +550,10 @@ fun BoardCanvas(
         }
     }
 }
+
+/** A band spanning the whole board across the time axis, [length] long along it. */
+private fun Modifier.band(vertical: Boolean, length: Dp) =
+    if (vertical) height(length).fillMaxWidth() else width(length).fillMaxHeight()
 
 /**
  * Accessibility for a node card: one merged element that opens on activation and offers
@@ -553,8 +595,8 @@ private fun Modifier.markerSemantics(
     }
 }
 
-/** Top-left of [item] in canvas pixels, used as the grab reference when a drag starts. */
-private fun itemOrigin(board: BoardState, g: BoardGeometry, item: DragItem, headerPx: Float, vp: BoardViewport): Offset {
+/** Top-left of [item] relative to the content area's scrolled origin, in board coordinates. */
+private fun itemOrigin(board: BoardState, g: BoardGeometry, item: DragItem, vp: BoardViewport): Offset {
     val (slot, row) = when (item) {
         is DragItem.Node -> board.placements.getValue(item.id).let { it.slot to board.timelines.indexOf(it.timelineId) }
         is DragItem.Group -> board.placements.getValue(board.nodesOf(item.id).first()).let {
@@ -562,9 +604,10 @@ private fun itemOrigin(board: BoardState, g: BoardGeometry, item: DragItem, head
         }
         is DragItem.Marker -> board.markers.getValue(item.id) to 0
     }
-    return Offset(headerPx + g.x(slot) - vp.scrollX, if (item is DragItem.Marker) 0f else g.y(row) - vp.scrollY)
+    return Offset(g.x(slot) - vp.scrollAlong, if (item is DragItem.Marker) 0f else g.y(row) - vp.scrollAcross)
 }
 
+/** What lies under canvas point [p], given in board coordinates (see [BoardAxes.board]). */
 private fun hitTest(
     ui: BoardUi,
     g: BoardGeometry,
@@ -574,17 +617,17 @@ private fun hitTest(
     headerPx: Float,
     vp: BoardViewport,
 ): BoardHit? {
-    val cy = p.y + vp.scrollY
+    val cy = p.y + vp.scrollAcross
     val row = g.rowAt(cy)
     if (p.x < headerPx) return row?.let { BoardHit.Timeline(ui.board.timelines[it]) }
-    val slot = g.slotAt(p.x - headerPx + vp.scrollX)
+    val slot = g.slotAt(p.x - headerPx + vp.scrollAlong)
     ui.board.markerAt(slot)?.let { return BoardHit.Marker(it) }
     if (row == null) return null
-    val fromBottom = g.y(row + 1) - cy
-    if (fromBottom < stripPx) {
+    val fromEdge = g.y(row + 1) - cy
+    if (fromEdge < stripPx) {
         // The nearest bar among the groups spanning this slot.
         spans.filter { it.row == row && slot in it.first..it.last }
-            .minByOrNull { kotlin.math.abs(stripPx * barOffsetFraction(it.depth) - fromBottom) }
+            .minByOrNull { kotlin.math.abs(stripPx * barOffsetFraction(it.depth) - fromEdge) }
             ?.let { return BoardHit.Group(it.groupId) }
     }
     val t = ui.board.timelines[row]
@@ -640,7 +683,7 @@ fun NodeCard(
 }
 
 @Composable
-private fun MarkerLabel(label: String, color: Color, modifier: Modifier) {
+private fun MarkerLabel(label: String, color: Color, rotated: Boolean, modifier: Modifier) {
     Box(modifier, contentAlignment = Alignment.Center) {
         Text(
             label,
@@ -649,7 +692,7 @@ private fun MarkerLabel(label: String, color: Color, modifier: Modifier) {
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.vertical(),
+            modifier = if (rotated) Modifier.vertical() else Modifier.padding(horizontal = 8.dp),
         )
     }
 }
