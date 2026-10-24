@@ -44,7 +44,9 @@ import com.storyarc.app.ui.common.ConfirmDialog
 import com.storyarc.app.ui.common.TextInputDialog
 import com.storyarc.app.ui.common.UndoRedoActions
 import com.storyarc.app.ui.common.appContainer
+import com.storyarc.app.data.settings.Settings
 import com.storyarc.board.Drop
+import com.storyarc.board.Item
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,6 +57,7 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
     val ui by vm.ui.collectAsStateWithLifecycle()
     val undo by vm.undo.collectAsStateWithLifecycle()
     val viewport = rememberBoardViewport()
+    val settings by appContainer().settings.settings.collectAsStateWithLifecycle(Settings())
     var editingNode by rememberSaveable { mutableStateOf<String?>(null) }
     var editingMarker by rememberSaveable { mutableStateOf<String?>(null) }
     var addingMarker by rememberSaveable { mutableStateOf(false) }
@@ -98,6 +101,14 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
                 else -> BoardCanvas(
                     current,
                     viewport,
+                    barrier = BarrierConfig(settings.barrierDelayEnabled, settings.barrierDelayMs),
+                    onDrop = { item, target ->
+                        when {
+                            item is DragItem.Node && target is DragTarget.Place -> vm.move(Item.Node(item.id), target.drop)
+                            item is DragItem.Group && target is DragTarget.Place -> vm.move(Item.GroupItem(item.id), target.drop)
+                            item is DragItem.Marker && target is DragTarget.MarkerAt -> vm.moveMarker(item.id, target.beforeSlot)
+                        }
+                    },
                     onTap = { hit ->
                         when (hit) {
                             is BoardHit.Node -> editingNode = hit.nodeId

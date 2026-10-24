@@ -29,6 +29,12 @@ class BoardGeometry(
 
     fun y(row: Int) = row * rowHeight
 
+    /** Left edge at a fractional slot position, interpolating across column widths (for animation). */
+    fun xAt(slot: Float): Float {
+        val i = slot.toInt().coerceIn(0, columnCount - 1)
+        return x(i) + (slot - i) * width(i)
+    }
+
     /** Column containing content-space [x], clamped to the laid-out columns. */
     fun slotAt(x: Float): Int {
         if (x <= 0f) return 0

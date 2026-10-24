@@ -25,3 +25,10 @@ How to build StoryArc on this machine, and the toolchain constraints behind the 
 - `BoardScreenshotTest` (Robolectric with native graphics) renders screens to `app/build/screenshots/*.png`; view them to check layout. Run it with `./gradlew :app:testDebugUnitTest --tests '*ScreenshotTest*'`.
 - `captureToImage()` times out under Robolectric (it can't force a redraw), so the test draws `window.decorView` into a `Bitmap` directly.
 - Board content outside the viewport isn't composed, so wait on text that is visible in the configured screen size.
+
+## Gesture tests (Robolectric + Compose)
+
+- All events in one `performTouchInput {}` block are injected together, so no clock time passes inside it. To trigger a long press: `performTouchInput { down(p) }`, then `mainClock.advanceTimeBy(800)`, then a separate `performTouchInput` for the moves.
+- `delay()` inside a `LaunchedEffect` doesn't fire under `mainClock.advanceTimeBy` or `ShadowLooper.idleMainLooper` here. Logic that must be testable measures elapsed time from pointer event `uptimeMillis` (`advanceEventTime` drives it); the marker dwell does both.
+- Board writes go Room (background) → main looper, so assert with retries (`BoardDragTest.eventually`), not right after `waitForIdle()`.
+- A `withFrameNanos` loop that keeps running prevents Compose from going idle, and test synchronisation then times out. Run frame loops only while they're doing work (e.g. auto-scroll only near an edge that can scroll).
