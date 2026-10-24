@@ -72,10 +72,13 @@ private fun originSlot(board: BoardState, item: DragItem): Int? = when (item) {
     is DragItem.Marker -> null
 }
 
-/** The board as it would look after dropping [item] at [target]. */
-fun preview(board: BoardState, item: DragItem, target: DragTarget): BoardState = when {
-    item is DragItem.Node && target is DragTarget.Place -> board.move(Item.Node(item.id), target.drop)
-    item is DragItem.Group && target is DragTarget.Place -> board.move(Item.GroupItem(item.id), target.drop)
-    item is DragItem.Marker && target is DragTarget.MarkerAt -> board.moveMarker(item.id, target.beforeSlot)
+/**
+ * The board as it would look after dropping [item] at [target]. With [collapse] false the
+ * item's emptied column is kept, so columns don't shift under the finger while dragging.
+ */
+fun preview(board: BoardState, item: DragItem, target: DragTarget, collapse: Boolean = true): BoardState = when {
+    item is DragItem.Node && target is DragTarget.Place -> board.move(Item.Node(item.id), target.drop, collapse)
+    item is DragItem.Group && target is DragTarget.Place -> board.move(Item.GroupItem(item.id), target.drop, collapse)
+    item is DragItem.Marker && target is DragTarget.MarkerAt -> board.moveMarker(item.id, target.beforeSlot, collapse)
     else -> board
 }

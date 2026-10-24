@@ -9,7 +9,9 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performCustomAccessibilityActionWithLabel
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -196,5 +198,19 @@ class BoardDragTest {
             val g = runBlocking { repo.board.groups(view) }.single()
             assertEquals("Joss", runBlocking { repo.projects.timeline(g.timelineId)!!.name })
         }
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun accessibilityActionsMoveWithoutDragging() {
+        open()
+        compose.onNode(hasText("Waits")).performCustomAccessibilityActionWithLabel("Move later")
+        // Inserted as a new column just before the marker.
+        eventually {
+            assertEquals("Joss" to 2, slotOf("Waits"))
+            assertEquals(3, markerSlot())
+        }
+        compose.onNode(hasText("Waits")).performCustomAccessibilityActionWithLabel("Move to Mara")
+        eventually { assertEquals("Mara", slotOf("Waits").first) }
     }
 }

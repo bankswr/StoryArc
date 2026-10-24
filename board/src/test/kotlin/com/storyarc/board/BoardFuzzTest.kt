@@ -1,6 +1,7 @@
 package com.storyarc.board
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.fail
 import org.junit.jupiter.api.Test
 import kotlin.random.Random
@@ -138,5 +139,29 @@ class BoardFuzzTest {
             assertEquals(emptyList<String>(), after.violations())
             before.forEach { (id, side) -> assertEquals(side, sign(after.placements.getValue(id).slot, after.markers.getValue("m")), "seed $seed $id") }
         }
+    }
+
+    @Test
+    fun `large boards stay fast`() {
+        val rnd = Random(7)
+        var b = BoardState()
+        repeat(10) { b = b.addTimeline("T$it") }
+        // 2000 nodes spread over ~400 slots, with markers and groups.
+        val placements = HashMap<String, Cell>()
+        var n = 0
+        for (slot in 0 until 400) for (t in 0 until 10) if (rnd.nextInt(2) == 0) placements["n${n++}"] = Cell("T$t", slot)
+        b = b.copy(placements = placements)
+        b = b.copy(placements = b.placements.filterValues { it.slot % 50 != 25 })
+        for (m in 0 until 8) b = b.addMarker("m$m", m * 50 + 25)
+        assertEquals(emptyList<String>(), b.violations())
+        val start = System.nanoTime()
+        repeat(300) {
+            val id = b.placements.keys.random(rnd)
+            b = b.move(Item.Node(id), Drop.Onto(b.timelines.random(rnd), rnd.nextInt(b.slotCount)))
+        }
+        val perMoveMs = (System.nanoTime() - start) / 1e6 / 300
+        println("large board: ${b.placements.size} nodes, ${b.slotCount} slots, %.2f ms per move".format(perMoveMs))
+        assertEquals(emptyList<String>(), b.violations())
+        assertTrue(perMoveMs < 50, "move took $perMoveMs ms")
     }
 }

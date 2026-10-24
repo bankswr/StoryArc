@@ -62,6 +62,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.alpha
 import com.storyarc.board.BoardState
+import com.storyarc.board.Drop
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
@@ -192,7 +198,7 @@ fun BoardCanvas(
             val r = resolveAt(s.item, s.pointer, s.unlocked)
             if (r != s.resolution) {
                 s.resolution = r
-                s.preview = preview(currentUi.board, s.item, r.target)
+                s.preview = preview(currentUi.board, s.item, r.target, collapse = false)
             }
         }
 
@@ -290,7 +296,7 @@ fun BoardCanvas(
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         val origin = itemOrigin(ui0.board, g0, item, headerPx, viewport)
                         val r = resolveAt(item, longPress.position, emptySet())
-                        val s = DragSession(item, longPress.position, longPress.position - origin, r, preview(ui0.board, item, r.target))
+                        val s = DragSession(item, longPress.position, longPress.position - origin, r, preview(ui0.board, item, r.target, collapse = false))
                         session = s
                         longPress.consume()
                         val completed = drag(longPress.id) { change ->
@@ -309,8 +315,9 @@ fun BoardCanvas(
                             change.consume()
                         }
                         currentEvent.changes.forEach { it.consume() }
-                        if (completed && s.preview != ui0.board) {
-                            pending = ui0.board to s.preview
+                        val result = preview(ui0.board, item, s.resolution.target)
+                        if (completed && result != ui0.board) {
+                            pending = ui0.board to result
                             currentOnDrop(item, s.resolution.target)
                         }
                         session = null
@@ -363,7 +370,8 @@ fun BoardCanvas(
                     Modifier
                         .offset { IntOffset((headerPx + geometry.x(s) - sx).roundToInt(), 0) }
                         .width(with(density) { geometry.width(s).toDp() })
-                        .fillMaxHeight(),
+                        .fillMaxHeight()
+                        .markerSemantics(ui, markerId, { currentOnTap(it) }, { i, t -> currentOnDrop(i, t) }),
                 )
             }
 
@@ -418,7 +426,8 @@ fun BoardCanvas(
                                 IntOffset((headerPx + x - sx).roundToInt(), (y - sy).roundToInt())
                             }
                             .size(cardW, cardH)
-                            .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
+                            .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom)
+                            .nodeSemantics(ui, nodeId, { currentOnTap(it) }, { i, t -> currentOnDrop(i, t) }),
                         ghost = ghost,
                         selected = nodeId in selected,
                     )
@@ -501,6 +510,46 @@ fun BoardCanvas(
                 }
             }
         }
+    }
+}
+
+/**
+ * Accessibility for a node card: one merged element that opens on activation and offers
+ * moves without dragging. Moves are explicit, so they may cross markers.
+ */
+private fun Modifier.nodeSemantics(
+    ui: BoardUi,
+    nodeId: String,
+    onTap: (BoardHit) -> Unit,
+    onDrop: (DragItem, DragTarget) -> Unit,
+): Modifier = semantics(mergeDescendants = true) {
+    val cell = ui.board.placements[nodeId] ?: return@semantics
+    val timelines = ui.board.timelines
+    val row = timelines.indexOf(cell.timelineId)
+    val name = ui.timelines.find { it.id == cell.timelineId }?.name.orEmpty()
+    stateDescription = "$name, position ${cell.slot + 1}"
+    onClick("Edit") { onTap(BoardHit.Node(nodeId)); true }
+    fun move(label: String, drop: Drop) = CustomAccessibilityAction(label) { onDrop(DragItem.Node(nodeId), DragTarget.Place(drop)); true }
+    customActions = buildList {
+        if (cell.slot > 0) add(move("Move earlier", Drop.Between(cell.timelineId, cell.slot - 1)))
+        add(move("Move later", Drop.Between(cell.timelineId, cell.slot + 2)))
+        if (row > 0) add(move("Move to ${ui.timelines.getOrNull(row - 1)?.name ?: "previous timeline"}", Drop.Onto(timelines[row - 1], cell.slot)))
+        if (row < timelines.lastIndex) add(move("Move to ${ui.timelines.getOrNull(row + 1)?.name ?: "next timeline"}", Drop.Onto(timelines[row + 1], cell.slot)))
+    }
+}
+
+private fun Modifier.markerSemantics(
+    ui: BoardUi,
+    markerId: String,
+    onTap: (BoardHit) -> Unit,
+    onDrop: (DragItem, DragTarget) -> Unit,
+): Modifier = semantics(mergeDescendants = true) {
+    val slot = ui.board.markers[markerId] ?: return@semantics
+    stateDescription = "Marker, position ${slot + 1}"
+    onClick("Edit") { onTap(BoardHit.Marker(markerId)); true }
+    customActions = buildList {
+        if (slot > 0) add(CustomAccessibilityAction("Move earlier") { onDrop(DragItem.Marker(markerId), DragTarget.MarkerAt(slot - 1)); true })
+        add(CustomAccessibilityAction("Move later") { onDrop(DragItem.Marker(markerId), DragTarget.MarkerAt(slot + 2)); true })
     }
 }
 

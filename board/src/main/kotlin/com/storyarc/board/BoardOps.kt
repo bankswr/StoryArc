@@ -53,7 +53,12 @@ fun BoardState.removeNode(nodeId: String): BoardState = edit {
     membership.remove(nodeId)
 }
 
-fun BoardState.move(item: Item, drop: Drop): BoardState = edit {
+/**
+ * Moves a node or group. With [collapse] false the result keeps slots that became empty
+ * (it then breaks the density invariant); that form is only for previews, where the
+ * dragged item's old column should stay put until the drop.
+ */
+fun BoardState.move(item: Item, drop: Drop, collapse: Boolean = true): BoardState = edit(collapse) {
     val block: List<Pair<String, Int>> = when (item) {
         is Item.Node -> {
             val c = requireNotNull(placements[item.id]) { "unknown node ${item.id}" }
@@ -82,9 +87,9 @@ fun BoardState.addMarker(markerId: String, beforeSlot: Int): BoardState {
 }
 
 /** Moves a marker to a new slot inserted before [beforeSlot] (pre-move coordinates). */
-fun BoardState.moveMarker(markerId: String, beforeSlot: Int): BoardState {
+fun BoardState.moveMarker(markerId: String, beforeSlot: Int, collapse: Boolean = true): BoardState {
     require(markerId in markers) { "unknown marker $markerId" }
-    return edit {
+    return edit(collapse) {
         val at = beforeSlot.coerceIn(0, slotCount)
         markers.remove(markerId)
         insertColumns(at, 1)
@@ -145,8 +150,8 @@ fun BoardState.ungroup(groupId: String): BoardState {
     }
 }
 
-private inline fun BoardState.edit(block: Work.() -> Unit): BoardState =
-    Work(this).apply(block).apply { pruneEmptyGroups(); collapse() }.snapshot()
+private inline fun BoardState.edit(collapse: Boolean = true, block: Work.() -> Unit): BoardState =
+    Work(this).apply(block).apply { pruneEmptyGroups(); if (collapse) collapse() }.snapshot()
 
 /** Mutable working copy used to implement operations; always finished by prune + collapse. */
 private class Work(s: BoardState) {

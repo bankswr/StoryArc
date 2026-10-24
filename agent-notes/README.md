@@ -28,3 +28,4 @@ Shared knowledge base for agents working on this project. Read relevant notes be
 - [product-spec.md](product-spec.md) — confirmed product requirements: data model, interactions, tags, platform
 - [technical-plan.md](technical-plan.md) — architecture, Room data model, board engine algorithms, undo, backup, milestones
 - [build-environment.md](build-environment.md) — JAVA_HOME requirement, build/test commands, why dependency versions are pinned where they are
+- [project-status.md](project-status.md) — what's built, how it's verified, what's unverified, known limitations

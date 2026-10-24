@@ -181,4 +181,12 @@ class BoardOpsTest {
         assertEquals(listOf("C", "A", "B"), b.moveTimeline("C", 0).timelines)
         assertEquals(listOf("B", "C", "A"), b.moveTimeline("A", 5).timelines)
     }
+
+    @Test
+    fun `preview moves can keep the emptied column`() {
+        val b = board("A: a b c", "B: x . .")
+        val preview = b.move(Item.Node("b"), Drop.Onto("A", 2), collapse = false)
+        assertEquals(listOf("A: a . b c", "B: x . . ."), preview.render())
+        assertEquals(listOf("A: a b c", "B: x . ."), b.move(Item.Node("b"), Drop.Onto("A", 2)).render())
+    }
 }
