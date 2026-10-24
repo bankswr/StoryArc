@@ -19,3 +19,9 @@ How to build StoryArc on this machine, and the toolchain constraints behind the 
 - AGP 8.13.0 + Gradle 8.14.3 (both already cached locally). AGP 8.13 supports compileSdk up to 36.
 - AndroidX releases from mid-2026 onward (core 1.19+, lifecycle 2.10+/2.11, navigation 2.10+) require compileSdk 37 **and** AGP 9.1+. They fail the AAR metadata check, and a newer Compose BOM can pull them in transitively. Current pins: core 1.18.0, lifecycle 2.9.4, navigation 2.9.8, activity 1.12.2, Compose BOM 2026.03.01.
 - Moving to AGP 9 means installing platform 37 and migrating to AGP 9's built-in Kotlin support (the `org.jetbrains.kotlin.android` plugin is no longer applied). Treat it as a separate, deliberate upgrade.
+
+## Visual checks without a device
+
+- `BoardScreenshotTest` (Robolectric with native graphics) renders screens to `app/build/screenshots/*.png`; view them to check layout. Run it with `./gradlew :app:testDebugUnitTest --tests '*ScreenshotTest*'`.
+- `captureToImage()` times out under Robolectric (it can't force a redraw), so the test draws `window.decorView` into a `Bitmap` directly.
+- Board content outside the viewport isn't composed, so wait on text that is visible in the configured screen size.
