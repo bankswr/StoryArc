@@ -99,7 +99,7 @@ Integer indices are renumbered in one transaction on insert/collapse. Projects a
 - **Move marker**: a marker always takes its own slot, so a marker drop is always a `Between(s)` insert followed by a collapse.
 - **Timeline reorder, add, remove**: changes the order only. Removing a timeline from a view removes its placements, then collapses.
 
-The engine is tested with example-based unit tests for each rule, plus property-based tests (random operation sequences, invariants checked after every step) using kotest-property.
+The engine is tested with example-based unit tests for each rule, plus seeded random-sequence tests (`BoardFuzzTest`) that check invariants and relative-order preservation after every step.
 
 ## Persistence, change sets and undo/redo
 
@@ -157,7 +157,7 @@ DataStore Preferences: `barrierDelayEnabled` (default true) and `barrierDelayMs`
 
 ## Testing
 
-- `:board`: JUnit 5 + kotest-property. This is the bulk of the logic tests.
+- `:board`: JUnit 5, with example tests plus seeded fuzz tests (no property-testing library). This is the bulk of the logic tests.
 - `:app`: Room DAOs, migrations, change-set/undo and backup round-trip, run on the JVM with Robolectric (no device needed). Compose UI tests for the drag hit-testing and key flows also run under Robolectric.
 - Manual verification on the user's phone via debug APKs at each milestone.
 
