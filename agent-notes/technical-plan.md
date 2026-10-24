@@ -148,14 +148,16 @@ DataStore Preferences: `barrierDelayEnabled` (default true) and `barrierDelayMs`
 
 ## Backup and restore
 
-- Format: a `.zip` containing `manifest.json` (format version, app version, export time, contents) plus one JSON file per project and one per world, serialized with kotlinx.serialization from DTOs that are separate from the Room entities.
+- Format: a `.zip` containing `manifest.json` (format version, app version, export time, contents) plus `projects/<id>.json` and `worlds/<id>.json`. The Room entities are `@Serializable` and stored directly; `BackupManager.FORMAT_VERSION` guards the layout, so a schema change that alters entity fields must bump it and convert old files.
 - Scopes:
   - per project, including the world libraries it links;
   - everything.
 - Files are written and read through the Storage Access Framework (`ACTION_CREATE_DOCUMENT` / `ACTION_OPEN_DOCUMENT`), so no storage permissions are needed.
 - Restore is validated before anything is written: format version and referential integrity are checked.
-  - If an incoming ID already exists, the user chooses **replace** or **import as copy** (copy re-maps all IDs).
-  - A shared world that already exists is reused, not duplicated.
+  - If an incoming ID already exists, the user chooses **replace** or **import as copy**.
+  - Replace syncs rows: existing rows of those projects and worlds are diffed against the backup, rather than deleted and re-inserted, so other projects' assignments of a shared world's tags survive.
+  - Copy re-maps every project-owned id and appends " (copy)" to the name; world libraries that already exist are kept and reused.
+  - References the backup can't satisfy (tags or notes it doesn't contain and the device doesn't have) are dropped or cleared. The import runs in one transaction, and all undo history is cleared afterwards.
 - Round-trip tests: export → import → deep-equal.
 
 ## Testing

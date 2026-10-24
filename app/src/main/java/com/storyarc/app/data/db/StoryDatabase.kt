@@ -22,6 +22,7 @@ abstract class StoryDatabase : RoomDatabase() {
     abstract fun board(): BoardDao
     abstract fun tags(): TagDao
     abstract fun worlds(): WorldDao
+    abstract fun backup(): BackupDao
 
     companion object {
         fun create(context: Context): StoryDatabase =

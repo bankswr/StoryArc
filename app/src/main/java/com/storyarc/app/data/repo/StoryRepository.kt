@@ -75,6 +75,9 @@ class StoryRepository(
         cs.changes.asReversed().forEach { c -> if (c.after == null) rows.deleteAny(c.before!!) }
     }
 
+    /** Drops every project's undo history, after bulk changes it can't describe. */
+    fun clearAllUndo() = synchronized(undoManagers) { undoManagers.values.forEach { it.clear() } }
+
     suspend fun undo(projectId: String) = lock.withLock { undoManager(projectId).undo() }
 
     suspend fun redo(projectId: String) = lock.withLock { undoManager(projectId).redo() }
@@ -454,7 +457,7 @@ class StoryRepository(
             worlds.unlinkTagsFromWorldNotes(worldId)
             worlds.deleteWorld(worldId)
         }
-        synchronized(undoManagers) { undoManagers.values.forEach { it.clear() } }
+        clearAllUndo()
     }
 
     suspend fun createCategory(projectId: String, worldId: String, name: String, parentId: String? = null): String = lock.withLock {

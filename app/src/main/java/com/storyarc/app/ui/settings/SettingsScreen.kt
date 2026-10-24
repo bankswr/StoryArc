@@ -25,6 +25,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.storyarc.app.ui.common.appContainer
+import com.storyarc.app.ui.common.rememberBackupExporter
+import com.storyarc.app.ui.common.rememberRestore
+import androidx.compose.foundation.clickable
 import com.storyarc.app.ui.project.SectionHeader
 import kotlinx.coroutines.launch
 
@@ -36,6 +39,8 @@ fun SettingsScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var delay by remember { mutableFloatStateOf(settings.barrierDelayMs.toFloat()) }
     LaunchedEffect(settings.barrierDelayMs) { delay = settings.barrierDelayMs.toFloat() }
+    val exportAll = rememberBackupExporter { null }
+    val restore = rememberRestore()
 
     Scaffold(
         topBar = {
@@ -69,6 +74,17 @@ fun SettingsScreen(onBack: () -> Unit) {
                     },
                 )
             }
+            SectionHeader("Backups")
+            ListItem(
+                headlineContent = { Text("Back up everything") },
+                supportingContent = { Text("All projects and world libraries, as one .zip file") },
+                modifier = Modifier.clickable { exportAll("everything") },
+            )
+            ListItem(
+                headlineContent = { Text("Restore from backup") },
+                supportingContent = { Text("Projects can also be backed up one at a time from the project list") },
+                modifier = Modifier.clickable { restore() },
+            )
         }
     }
 }

@@ -36,6 +36,7 @@ import com.storyarc.app.data.db.ProjectEntity
 import com.storyarc.app.ui.common.ConfirmDialog
 import com.storyarc.app.ui.common.TextInputDialog
 import com.storyarc.app.ui.common.appContainer
+import com.storyarc.app.ui.common.rememberBackupExporter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,6 +52,8 @@ fun ProjectsScreen(onOpen: (String) -> Unit, onSettings: () -> Unit) {
     var creating by rememberSaveable { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<ProjectEntity?>(null) }
     var deleting by remember { mutableStateOf<ProjectEntity?>(null) }
+    var backingUp by remember { mutableStateOf<ProjectEntity?>(null) }
+    val exportProject = rememberBackupExporter { backingUp?.let { listOf(it.id) } }
 
     Scaffold(
         topBar = {
@@ -79,6 +82,7 @@ fun ProjectsScreen(onOpen: (String) -> Unit, onSettings: () -> Unit) {
                                 IconButton(onClick = { menu = true }) { Icon(Icons.Default.MoreVert, "Project options") }
                                 DropdownMenu(menu, onDismissRequest = { menu = false }) {
                                     DropdownMenuItem(text = { Text("Rename") }, onClick = { menu = false; renaming = p })
+                                    DropdownMenuItem(text = { Text("Back up") }, onClick = { menu = false; backingUp = p; exportProject(p.name) })
                                     DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; deleting = p })
                                 }
                             }

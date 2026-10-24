@@ -5,14 +5,18 @@ import androidx.room.ForeignKey
 import androidx.room.ForeignKey.Companion.CASCADE
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
 // Foreign keys are deferred so a change set can write rows in any order inside one transaction.
 // CASCADE is used only for ownership (project, world, view, and rows owned by a node, timeline,
 // marker, group or tag); commands still delete those dependents explicitly so undo can restore
 // them, and cascades only do real work in non-undoable bulk deletes such as removing a project.
+// Entities are also @Serializable: backups store these rows directly, versioned by the backup
+// manifest's format version.
 // References between peers (group parent, a placement's group, note category, tag link) have no
 // action, so an incomplete change set fails at commit instead of silently rewriting rows.
 
+@Serializable
 @Entity(tableName = "project")
 data class ProjectEntity(
     @PrimaryKey val id: String,
@@ -21,12 +25,14 @@ data class ProjectEntity(
     val updatedAt: Long,
 )
 
+@Serializable
 @Entity(tableName = "world")
 data class WorldEntity(
     @PrimaryKey val id: String,
     val name: String,
 )
 
+@Serializable
 @Entity(
     tableName = "project_world",
     primaryKeys = ["projectId", "worldId"],
@@ -38,6 +44,7 @@ data class WorldEntity(
 )
 data class ProjectWorldEntity(val projectId: String, val worldId: String)
 
+@Serializable
 @Entity(
     tableName = "board_view",
     indices = [Index("projectId")],
@@ -50,6 +57,7 @@ data class ViewEntity(
     val ordinal: Int,
 )
 
+@Serializable
 @Entity(
     tableName = "timeline",
     indices = [Index("projectId")],
@@ -62,6 +70,7 @@ data class TimelineEntity(
     val color: Int? = null,
 )
 
+@Serializable
 @Entity(
     tableName = "view_timeline",
     primaryKeys = ["viewId", "timelineId"],
@@ -73,6 +82,7 @@ data class TimelineEntity(
 )
 data class ViewTimelineEntity(val viewId: String, val timelineId: String, val ordinal: Int)
 
+@Serializable
 @Entity(
     tableName = "node",
     indices = [Index("projectId")],
@@ -85,6 +95,7 @@ data class NodeEntity(
     val color: Int? = null,
 )
 
+@Serializable
 @Entity(
     tableName = "node_group",
     indices = [Index("viewId"), Index("timelineId"), Index("parentId")],
@@ -104,6 +115,7 @@ data class NodeGroupEntity(
 )
 
 /** A node's position in one view. [groupId] is the node's innermost group, if any. */
+@Serializable
 @Entity(
     tableName = "placement",
     primaryKeys = ["viewId", "nodeId"],
@@ -123,6 +135,7 @@ data class PlacementEntity(
     val groupId: String?,
 )
 
+@Serializable
 @Entity(
     tableName = "marker",
     indices = [Index("viewId")],
@@ -136,6 +149,7 @@ data class MarkerEntity(
     val color: Int? = null,
 )
 
+@Serializable
 @Entity(
     tableName = "category",
     indices = [Index("worldId"), Index("parentId")],
@@ -152,6 +166,7 @@ data class CategoryEntity(
     val ordinal: Int,
 )
 
+@Serializable
 @Entity(
     tableName = "note",
     indices = [Index("worldId"), Index("categoryId")],
@@ -168,6 +183,7 @@ data class NoteEntity(
     val body: String,
 )
 
+@Serializable
 @Entity(
     tableName = "note_link",
     primaryKeys = ["fromNoteId", "toNoteId"],
@@ -180,6 +196,7 @@ data class NoteEntity(
 data class NoteLinkEntity(val fromNoteId: String, val toNoteId: String)
 
 /** Owned by exactly one of [projectId] or [worldId]. */
+@Serializable
 @Entity(
     tableName = "tag",
     indices = [Index("projectId"), Index("worldId"), Index("linkedNoteId")],
@@ -199,6 +216,7 @@ data class TagEntity(
 )
 
 /** Tag assignments; ordinal 0 is the item's primary tag. */
+@Serializable
 @Entity(
     tableName = "node_tag",
     primaryKeys = ["targetId", "tagId"],
@@ -210,6 +228,7 @@ data class TagEntity(
 )
 data class NodeTagEntity(val targetId: String, val tagId: String, val ordinal: Int)
 
+@Serializable
 @Entity(
     tableName = "marker_tag",
     primaryKeys = ["targetId", "tagId"],
@@ -221,6 +240,7 @@ data class NodeTagEntity(val targetId: String, val tagId: String, val ordinal: I
 )
 data class MarkerTagEntity(val targetId: String, val tagId: String, val ordinal: Int)
 
+@Serializable
 @Entity(
     tableName = "group_tag",
     primaryKeys = ["targetId", "tagId"],
@@ -232,6 +252,7 @@ data class MarkerTagEntity(val targetId: String, val tagId: String, val ordinal:
 )
 data class GroupTagEntity(val targetId: String, val tagId: String, val ordinal: Int)
 
+@Serializable
 @Entity(
     tableName = "note_tag",
     primaryKeys = ["targetId", "tagId"],
@@ -243,6 +264,7 @@ data class GroupTagEntity(val targetId: String, val tagId: String, val ordinal: 
 )
 data class NoteTagEntity(val targetId: String, val tagId: String, val ordinal: Int)
 
+@Serializable
 @Entity(
     tableName = "view_hidden_tag",
     primaryKeys = ["viewId", "tagId"],

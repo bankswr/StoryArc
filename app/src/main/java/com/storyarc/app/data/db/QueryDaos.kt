@@ -213,3 +213,56 @@ interface WorldDao {
     @Query("DELETE FROM world WHERE id = :worldId")
     suspend fun deleteWorld(worldId: String)
 }
+
+/** Whole-project and whole-world reads for backups. */
+@Dao
+interface BackupDao {
+    @Query("SELECT * FROM project") suspend fun projects(): List<ProjectEntity>
+    @Query("SELECT * FROM project WHERE id = :id") suspend fun project(id: String): ProjectEntity?
+    @Query("SELECT * FROM project_world WHERE projectId = :p") suspend fun projectWorlds(p: String): List<ProjectWorldEntity>
+    @Query("SELECT * FROM board_view WHERE projectId = :p") suspend fun views(p: String): List<ViewEntity>
+    @Query("SELECT * FROM timeline WHERE projectId = :p") suspend fun timelines(p: String): List<TimelineEntity>
+    @Query("SELECT * FROM node WHERE projectId = :p") suspend fun nodes(p: String): List<NodeEntity>
+
+    @Query("SELECT vt.* FROM view_timeline vt JOIN board_view v ON v.id = vt.viewId WHERE v.projectId = :p")
+    suspend fun viewTimelines(p: String): List<ViewTimelineEntity>
+
+    @Query("SELECT g.* FROM node_group g JOIN board_view v ON v.id = g.viewId WHERE v.projectId = :p")
+    suspend fun groups(p: String): List<NodeGroupEntity>
+
+    @Query("SELECT pl.* FROM placement pl JOIN board_view v ON v.id = pl.viewId WHERE v.projectId = :p")
+    suspend fun placements(p: String): List<PlacementEntity>
+
+    @Query("SELECT m.* FROM marker m JOIN board_view v ON v.id = m.viewId WHERE v.projectId = :p")
+    suspend fun markers(p: String): List<MarkerEntity>
+
+    @Query("SELECT * FROM tag WHERE projectId = :p") suspend fun projectTags(p: String): List<TagEntity>
+
+    @Query("SELECT nt.* FROM node_tag nt JOIN node n ON n.id = nt.targetId WHERE n.projectId = :p")
+    suspend fun nodeTags(p: String): List<NodeTagEntity>
+
+    @Query("SELECT mt.* FROM marker_tag mt JOIN marker m ON m.id = mt.targetId JOIN board_view v ON v.id = m.viewId WHERE v.projectId = :p")
+    suspend fun markerTags(p: String): List<MarkerTagEntity>
+
+    @Query("SELECT gt.* FROM group_tag gt JOIN node_group g ON g.id = gt.targetId JOIN board_view v ON v.id = g.viewId WHERE v.projectId = :p")
+    suspend fun groupTags(p: String): List<GroupTagEntity>
+
+    @Query("SELECT h.* FROM view_hidden_tag h JOIN board_view v ON v.id = h.viewId WHERE v.projectId = :p")
+    suspend fun hiddenTags(p: String): List<ViewHiddenTagEntity>
+
+    @Query("SELECT * FROM world") suspend fun worlds(): List<WorldEntity>
+    @Query("SELECT * FROM world WHERE id = :id") suspend fun world(id: String): WorldEntity?
+    @Query("SELECT * FROM category WHERE worldId = :w") suspend fun categories(w: String): List<CategoryEntity>
+    @Query("SELECT * FROM note WHERE worldId = :w") suspend fun notes(w: String): List<NoteEntity>
+
+    @Query("SELECT l.* FROM note_link l JOIN note n ON n.id = l.fromNoteId WHERE n.worldId = :w")
+    suspend fun noteLinks(w: String): List<NoteLinkEntity>
+
+    @Query("SELECT * FROM tag WHERE worldId = :w") suspend fun worldTags(w: String): List<TagEntity>
+
+    @Query("SELECT nt.* FROM note_tag nt JOIN note n ON n.id = nt.targetId WHERE n.worldId = :w")
+    suspend fun noteTags(w: String): List<NoteTagEntity>
+
+    @Query("SELECT id FROM tag") suspend fun allTagIds(): List<String>
+    @Query("SELECT id FROM note") suspend fun allNoteIds(): List<String>
+}
