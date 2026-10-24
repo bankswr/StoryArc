@@ -1,0 +1,75 @@
+package com.storyarc.app.ui.settings
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.storyarc.app.data.settings.Settings
+import com.storyarc.app.ui.common.appContainer
+import com.storyarc.app.ui.project.SectionHeader
+import kotlinx.coroutines.launch
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(onBack: () -> Unit) {
+    val settingsRepo = appContainer().settings
+    val settings by settingsRepo.settings.collectAsStateWithLifecycle(Settings())
+    val scope = rememberCoroutineScope()
+    var delay by remember { mutableFloatStateOf(settings.barrierDelayMs.toFloat()) }
+    LaunchedEffect(settings.barrierDelayMs) { delay = settings.barrierDelayMs.toFloat() }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            SectionHeader("Dragging")
+            ListItem(
+                headlineContent = { Text("Pause at markers") },
+                supportingContent = { Text("A dragged item stops at a marker and crosses only after a short hold.") },
+                trailingContent = {
+                    Switch(settings.barrierDelayEnabled, { scope.launch { settingsRepo.setBarrierDelayEnabled(it) } })
+                },
+            )
+            if (settings.barrierDelayEnabled) {
+                ListItem(
+                    headlineContent = { Text("Hold time: ${delay.toLong()} ms") },
+                    supportingContent = {
+                        Slider(
+                            value = delay,
+                            onValueChange = { delay = it },
+                            onValueChangeFinished = { scope.launch { settingsRepo.setBarrierDelayMs(delay.toLong()) } },
+                            valueRange = 200f..1500f,
+                            steps = 12,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    },
+                )
+            }
+        }
+    }
+}

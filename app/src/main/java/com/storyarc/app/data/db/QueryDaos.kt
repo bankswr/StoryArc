@@ -93,4 +93,12 @@ interface BoardDao {
 
     @Query("SELECT t.* FROM timeline t JOIN view_timeline vt ON vt.timelineId = t.id WHERE vt.viewId = :viewId")
     suspend fun timelinesInView(viewId: String): List<TimelineEntity>
+
+    @Query("SELECT t.* FROM timeline t JOIN view_timeline vt ON vt.timelineId = t.id WHERE vt.viewId = :viewId ORDER BY vt.ordinal")
+    fun observeTimelinesInView(viewId: String): Flow<List<TimelineEntity>>
+
+    @Query("SELECT timelineId, COUNT(*) AS count FROM placement WHERE viewId = :viewId GROUP BY timelineId")
+    fun observeNodeCounts(viewId: String): Flow<List<TimelineCount>>
 }
+
+data class TimelineCount(val timelineId: String, val count: Int)
