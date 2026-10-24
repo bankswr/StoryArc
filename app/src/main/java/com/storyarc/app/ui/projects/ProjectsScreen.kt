@@ -36,7 +36,9 @@ import com.storyarc.app.data.db.ProjectEntity
 import com.storyarc.app.ui.common.ConfirmDialog
 import com.storyarc.app.ui.common.TextInputDialog
 import com.storyarc.app.ui.common.appContainer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
@@ -92,7 +94,11 @@ fun ProjectsScreen(onOpen: (String) -> Unit, onSettings: () -> Unit) {
     if (creating) {
         TextInputDialog("New project", confirmLabel = "Create", onDismiss = { creating = false }) { name ->
             creating = false
-            scope.launch { onOpen(repo.createProject(name)) }
+            scope.launch {
+                val id = repo.createProject(name)
+                // Navigation must run on the main thread; don't rely on where the DB call resumed.
+                withContext(Dispatchers.Main) { onOpen(id) }
+            }
         }
     }
     renaming?.let { p ->

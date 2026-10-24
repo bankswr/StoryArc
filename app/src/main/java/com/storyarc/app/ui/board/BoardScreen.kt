@@ -13,7 +13,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -37,16 +38,18 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.storyarc.app.ui.common.AppAlertDialog
 import com.storyarc.app.ui.common.ConfirmDialog
 import com.storyarc.app.ui.common.TextInputDialog
 import com.storyarc.app.ui.common.UndoRedoActions
 import com.storyarc.app.ui.common.appContainer
-import com.storyarc.app.data.settings.Settings
 import com.storyarc.board.Drop
 import com.storyarc.board.Item
+import com.storyarc.board.groupingProblem
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,14 +60,35 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
     val ui by vm.ui.collectAsStateWithLifecycle()
     val undo by vm.undo.collectAsStateWithLifecycle()
     val viewport = rememberBoardViewport()
-    val settings by appContainer().settings.settings.collectAsStateWithLifecycle(Settings())
+    val settings by appContainer().settings.collectAsStateWithLifecycle()
     var editingNode by rememberSaveable { mutableStateOf<String?>(null) }
     var editingMarker by rememberSaveable { mutableStateOf<String?>(null) }
     var addingMarker by rememberSaveable { mutableStateOf(false) }
+    var editingGroup by rememberSaveable { mutableStateOf<String?>(null) }
+    // Selection mode: taps toggle nodes instead of opening them.
+    var selection by rememberSaveable { mutableStateOf<List<String>?>(null) }
+    var namingGroup by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            val sel = selection
+            if (sel != null) {
+                val problem = ui?.board?.groupingProblem(sel)?.takeIf { sel.isNotEmpty() }
+                TopAppBar(
+                    title = {
+                        Text(
+                            "${sel.size} · " + (problem ?: if (sel.isEmpty()) "Tap adjacent nodes on one timeline" else "Ready to group"),
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                    navigationIcon = { IconButton(onClick = { selection = null }) { Icon(Icons.Default.Close, "Cancel selection") } },
+                    actions = {
+                        TextButton(onClick = { namingGroup = true }, enabled = sel.isNotEmpty() && problem == null) { Text("Group") }
+                    },
+                )
+            } else TopAppBar(
                 title = { Text(ui?.view?.name ?: "") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
                 actions = {
@@ -72,13 +96,16 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
                     IconButton(onClick = { addingMarker = true }, enabled = ui?.timelines?.isNotEmpty() == true) {
                         Icon(Icons.Default.Bookmark, "Add marker")
                     }
+                    IconButton(onClick = { selection = emptyList() }, enabled = ui?.board?.placements?.isNotEmpty() == true) {
+                        Icon(Icons.Default.Checklist, "Select nodes")
+                    }
                     IconButton(onClick = onTimelines) { Icon(Icons.AutoMirrored.Filled.List, "Timelines") }
                 },
             )
         },
         floatingActionButton = {
             val current = ui
-            if (current != null && current.timelines.isNotEmpty()) {
+            if (current != null && current.timelines.isNotEmpty() && selection == null) {
                 FloatingActionButton(onClick = {
                     val t = current.timelines.first().id
                     vm.addNode(Drop.Onto(t, current.board.slotCount)) { editingNode = it }
@@ -109,12 +136,19 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
                             item is DragItem.Marker && target is DragTarget.MarkerAt -> vm.moveMarker(item.id, target.beforeSlot)
                         }
                     },
+                    selected = selection.orEmpty().toSet(),
                     onTap = { hit ->
+                        val sel = selection
+                        if (sel != null) {
+                            if (hit is BoardHit.Node) selection = if (hit.nodeId in sel) sel - hit.nodeId else sel + hit.nodeId
+                            return@BoardCanvas
+                        }
                         when (hit) {
                             is BoardHit.Node -> editingNode = hit.nodeId
                             is BoardHit.Marker -> editingMarker = hit.markerId
                             is BoardHit.Empty -> vm.addNode(Drop.Onto(hit.timelineId, hit.slot)) { editingNode = it }
                             is BoardHit.Timeline -> onTimelines()
+                            is BoardHit.Group -> editingGroup = hit.groupId
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
@@ -129,7 +163,7 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
         if (current != null && node == null) {
             LaunchedEffect(id) { editingNode = null }
         } else if (node != null) {
-            NodeEditorSheet(vm, node.id, current, onDismiss = { editingNode = null })
+            NodeEditorSheet(vm, node.id, current, onDismiss = { editingNode = null }, onSelect = { editingNode = null; selection = listOf(it) })
         }
     }
     editingMarker?.let { id ->
@@ -145,6 +179,26 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
             )
         }
     }
+    if (namingGroup) {
+        TextInputDialog("Group name", confirmLabel = "Group", allowBlank = true, onDismiss = { namingGroup = false }) { label ->
+            namingGroup = false
+            selection?.let { vm.createGroup(it, label) }
+            selection = null
+        }
+    }
+    editingGroup?.let { id ->
+        val group = current?.groups?.get(id)
+        if (group == null) {
+            LaunchedEffect(id) { editingGroup = null }
+        } else {
+            GroupDialog(
+                label = group.label,
+                onDismiss = { editingGroup = null },
+                onSave = { vm.editGroup(group, it); editingGroup = null },
+                onUngroup = { vm.ungroup(group.id); editingGroup = null },
+            )
+        }
+    }
     if (addingMarker && current != null) {
         TextInputDialog("New marker", confirmLabel = "Add", onDismiss = { addingMarker = false }) { label ->
             addingMarker = false
@@ -156,7 +210,7 @@ fun BoardScreen(projectId: String, viewId: String, onBack: () -> Unit, onTimelin
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onDismiss: () -> Unit) {
+private fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
     val node = ui.nodes.getValue(nodeId)
     var text by remember(nodeId) { mutableStateOf(node.text) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -180,6 +234,9 @@ private fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onD
                 }) { Text("Remove from view") }
                 TextButton(onClick = { confirmDelete = true }) { Text("Delete everywhere") }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { onSelect(nodeId) }) { Text("Select for grouping") }
+            }
         }
     }
     if (confirmDelete) {
@@ -200,14 +257,36 @@ private fun NodeEditorSheet(vm: BoardViewModel, nodeId: String, ui: BoardUi, onD
 @Composable
 private fun MarkerDialog(label: String, onDismiss: () -> Unit, onSave: (String) -> Unit, onDelete: () -> Unit) {
     var value by remember { mutableStateOf(label) }
-    AlertDialog(
+    AppAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Marker") },
-        text = { OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("Label") }) },
+        text = { OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("Label") }, modifier = Modifier.fillMaxWidth()) },
         confirmButton = { TextButton(onClick = { onSave(value.trim()) }, enabled = value.isNotBlank()) { Text("Save") } },
         dismissButton = {
             Row {
                 TextButton(onClick = onDelete) { Text("Delete") }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        },
+    )
+}
+
+@Composable
+private fun GroupDialog(label: String, onDismiss: () -> Unit, onSave: (String) -> Unit, onUngroup: () -> Unit) {
+    var value by remember { mutableStateOf(label) }
+    AppAlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Group") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(value, { value = it }, singleLine = true, label = { Text("Name") }, modifier = Modifier.fillMaxWidth())
+                Text("Long-press the group's bar to move the whole group.", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onSave(value.trim()) }) { Text("Save") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onUngroup) { Text("Ungroup") }
                 TextButton(onClick = onDismiss) { Text("Cancel") }
             }
         },

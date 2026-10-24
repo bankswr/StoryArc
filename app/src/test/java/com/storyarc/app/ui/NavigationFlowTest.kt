@@ -32,4 +32,22 @@ class NavigationFlowTest {
         compose.onNodeWithContentDescription("Undo Add timeline").performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Mara")).fetchSemanticsNodes().isEmpty() }
     }
+
+    @Test
+    /** Text dialogs over the board must lay out stably (an unconstrained field once looped). */
+    fun boardDialogAcceptsInput() {
+        compose.onNodeWithText("New project", useUnmergedTree = true).performClick()
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Saga")
+        compose.onNodeWithText("Create").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Main")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Main").performClick()
+        compose.onNodeWithContentDescription("Timelines").performClick()
+        compose.onNodeWithText("Add timeline", useUnmergedTree = true).performClick()
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Mara")
+        compose.onNodeWithText("Add").performClick()
+        compose.onNodeWithContentDescription("Back").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasText("Mara")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithContentDescription("Add marker").performClick()
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("Day")
+    }
 }

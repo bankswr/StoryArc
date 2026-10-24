@@ -85,4 +85,10 @@ class BoardViewModel(
     fun moveMarker(markerId: String, beforeSlot: Int) = launch { moveMarker(viewId, markerId, beforeSlot) }
 
     fun removeMarker(markerId: String) = launch { removeMarker(viewId, markerId) }
+
+    fun createGroup(nodeIds: List<String>, label: String) = launch { createGroup(viewId, nodeIds, label) }
+
+    fun editGroup(group: NodeGroupEntity, label: String) = launch { updateGroup(group.copy(label = label)) }
+
+    fun ungroup(groupId: String) = launch { ungroup(viewId, groupId) }
 }

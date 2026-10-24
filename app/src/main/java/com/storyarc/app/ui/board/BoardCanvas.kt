@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -89,6 +90,7 @@ sealed interface BoardHit {
     data class Marker(val markerId: String) : BoardHit
     data class Empty(val timelineId: String, val slot: Int) : BoardHit
     data class Timeline(val timelineId: String) : BoardHit
+    data class Group(val groupId: String) : BoardHit
 }
 
 /** Base sizes at zoom 1. */
@@ -98,6 +100,9 @@ object BoardDims {
     val marker = 40.dp
     val row = 88.dp
     val cardPadding = 4.dp
+
+    /** Band along the bottom of each row where group bars are drawn and grabbed. */
+    val groupStrip = 16.dp
     val autoScrollEdge = 56.dp
 }
 
@@ -124,10 +129,12 @@ fun BoardCanvas(
     onTap: (BoardHit) -> Unit,
     onDrop: (DragItem, DragTarget) -> Unit,
     modifier: Modifier = Modifier,
+    selected: Set<String> = emptySet(),
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
     val headerPx = with(density) { BoardDims.header.toPx() }
+    val stripPx = with(density) { BoardDims.groupStrip.toPx() } * viewport.zoom
     val edgePx = with(density) { BoardDims.autoScrollEdge.toPx() }
     val colors = MaterialTheme.colorScheme
 
@@ -149,9 +156,13 @@ fun BoardCanvas(
     // Targets are always resolved against the board as it was before the drag.
     val baseGeometry = remember(ui.board, viewport.zoom, density) { geometryFor(ui.board) }
     val geometry = remember(shown, viewport.zoom, density) { geometryFor(shown) }
+    val baseSpans = remember(ui.board) { groupSpans(ui.board) }
+    val spans = remember(shown) { groupSpans(shown) }
 
     val currentUi by rememberUpdatedState(ui)
     val currentBase by rememberUpdatedState(baseGeometry)
+    val currentSpans by rememberUpdatedState(baseSpans)
+    val currentStrip by rememberUpdatedState(stripPx)
     val currentBarrier by rememberUpdatedState(barrier)
     val currentOnDrop by rememberUpdatedState(onDrop)
     val currentOnTap by rememberUpdatedState(onTap)
@@ -257,16 +268,17 @@ fun BoardCanvas(
                     }
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures { p -> hitTest(currentUi, currentBase, p, headerPx, viewport)?.let(currentOnTap) }
+                    detectTapGestures { p -> hitTest(currentUi, currentBase, currentSpans, currentStrip, p, headerPx, viewport)?.let(currentOnTap) }
                 }
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val ui0 = currentUi
                         val g0 = currentBase
-                        val item = when (val hit = hitTest(ui0, g0, down.position, headerPx, viewport)) {
+                        val item = when (val hit = hitTest(ui0, g0, currentSpans, currentStrip, down.position, headerPx, viewport)) {
                             is BoardHit.Node -> DragItem.Node(hit.nodeId)
                             is BoardHit.Marker -> DragItem.Marker(hit.markerId)
+                            is BoardHit.Group -> DragItem.Group(hit.groupId)
                             else -> null
                         } ?: return@awaitEachGesture
                         val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
@@ -320,6 +332,19 @@ fun BoardCanvas(
                         drawLine(colors.outlineVariant, Offset(x, 0f), Offset(x, geometry.contentHeight - sy), 1f)
                     }
                 }
+                val barH = 3.dp.toPx() * viewport.zoom
+                for (span in spans) {
+                    if (span.last < slots.first || span.first > slots.last) continue
+                    val color = ui.groups[span.groupId]?.color?.let { Color(it) } ?: colors.tertiary
+                    val left = headerPx + geometry.x(span.first) - sx + BoardDims.cardPadding.toPx()
+                    val right = headerPx + geometry.x(span.last) + geometry.width(span.last) - sx - BoardDims.cardPadding.toPx()
+                    val y = geometry.y(span.row + 1) - sy - stripPx * barOffsetFraction(span.depth)
+                    drawRoundRect(
+                        color.copy(alpha = if (span.groupId == (session?.item as? DragItem.Group)?.id) 0.35f else 1f),
+                        Offset(left, y - barH / 2), Size(right - left, barH),
+                        androidx.compose.ui.geometry.CornerRadius(barH / 2),
+                    )
+                }
             }
 
             for (s in slots) {
@@ -331,6 +356,34 @@ fun BoardCanvas(
                         .offset { IntOffset((headerPx + geometry.x(s) - sx).roundToInt(), 0) }
                         .width(with(density) { geometry.width(s).toDp() })
                         .fillMaxHeight(),
+                )
+            }
+
+            for (span in spans) {
+                if (span.depth > 0 || span.last < slots.first || span.first > slots.last) continue
+                val label = ui.groups[span.groupId]?.label.orEmpty()
+                if (label.isBlank()) continue
+                val color = ui.groups[span.groupId]?.color?.let { Color(it) } ?: colors.tertiary
+                val maxW = with(density) { (geometry.x(span.last) + geometry.width(span.last) - geometry.x(span.first)).toDp() - 24.dp }
+                // A chip sitting on the group's bar.
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = readableOn(color),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .layout { m, c ->
+                            val p = m.measure(c)
+                            layout(p.width, p.height) {
+                                val x = headerPx + geometry.x(span.first) - sx + 12.dp.toPx()
+                                val barY = geometry.y(span.row + 1) - sy - stripPx * barOffsetFraction(span.depth)
+                                p.place(x.roundToInt(), (barY - p.height / 2f).roundToInt())
+                            }
+                        }
+                        .widthIn(max = maxW.coerceAtLeast(0.dp))
+                        .background(color, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp),
                 )
             }
 
@@ -354,8 +407,9 @@ fun BoardCanvas(
                                 IntOffset((headerPx + x - sx).roundToInt(), (y - sy).roundToInt())
                             }
                             .size(cardW, cardH)
-                            .padding(BoardDims.cardPadding),
+                            .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
                         ghost = ghost,
+                        selected = nodeId in selected,
                     )
                 }
             }
@@ -385,7 +439,7 @@ fun BoardCanvas(
                             Modifier
                                 .offset { IntOffset(topLeft.x.roundToInt(), topLeft.y.roundToInt()) }
                                 .size(cardW, cardH)
-                                .padding(BoardDims.cardPadding),
+                                .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
                             lifted = true,
                         )
                     }
@@ -406,7 +460,23 @@ fun BoardCanvas(
                             modifier = Modifier.vertical(),
                         )
                     }
-                    is DragItem.Group -> {}
+                    is DragItem.Group -> {
+                        // Members keep their offsets from the group's first slot.
+                        val members = ui.board.nodesOf(item.id)
+                        val first = members.firstOrNull()?.let { ui.board.placements.getValue(it).slot } ?: 0
+                        for (m in members) {
+                            val node = ui.nodes[m] ?: continue
+                            val dx = baseGeometry.x(ui.board.placements.getValue(m).slot) - baseGeometry.x(first)
+                            NodeCard(
+                                node,
+                                Modifier
+                                    .offset { IntOffset((topLeft.x + dx).roundToInt(), topLeft.y.roundToInt()) }
+                                    .size(cardW, cardH)
+                                    .padding(start = BoardDims.cardPadding, end = BoardDims.cardPadding, top = BoardDims.cardPadding, bottom = BoardDims.groupStrip * viewport.zoom),
+                                lifted = true,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -425,18 +495,40 @@ private fun itemOrigin(board: BoardState, g: BoardGeometry, item: DragItem, head
     return Offset(headerPx + g.x(slot) - vp.scrollX, if (item is DragItem.Marker) 0f else g.y(row) - vp.scrollY)
 }
 
-private fun hitTest(ui: BoardUi, g: BoardGeometry, p: Offset, headerPx: Float, vp: BoardViewport): BoardHit? {
-    val row = g.rowAt(p.y + vp.scrollY)
+private fun hitTest(
+    ui: BoardUi,
+    g: BoardGeometry,
+    spans: List<GroupSpan>,
+    stripPx: Float,
+    p: Offset,
+    headerPx: Float,
+    vp: BoardViewport,
+): BoardHit? {
+    val cy = p.y + vp.scrollY
+    val row = g.rowAt(cy)
     if (p.x < headerPx) return row?.let { BoardHit.Timeline(ui.board.timelines[it]) }
     val slot = g.slotAt(p.x - headerPx + vp.scrollX)
     ui.board.markerAt(slot)?.let { return BoardHit.Marker(it) }
     if (row == null) return null
+    val fromBottom = g.y(row + 1) - cy
+    if (fromBottom < stripPx) {
+        // The nearest bar among the groups spanning this slot.
+        spans.filter { it.row == row && slot in it.first..it.last }
+            .minByOrNull { kotlin.math.abs(stripPx * barOffsetFraction(it.depth) - fromBottom) }
+            ?.let { return BoardHit.Group(it.groupId) }
+    }
     val t = ui.board.timelines[row]
     return ui.board.nodeAt(t, slot)?.let { BoardHit.Node(it) } ?: BoardHit.Empty(t, slot)
 }
 
 @Composable
-fun NodeCard(node: NodeEntity, modifier: Modifier = Modifier, lifted: Boolean = false, ghost: Boolean = false) {
+fun NodeCard(
+    node: NodeEntity,
+    modifier: Modifier = Modifier,
+    lifted: Boolean = false,
+    ghost: Boolean = false,
+    selected: Boolean = false,
+) {
     val colors = MaterialTheme.colorScheme
     if (ghost) {
         Box(modifier.border(BorderStroke(2.dp, colors.primary.copy(alpha = 0.6f)), RoundedCornerShape(10.dp)))
@@ -449,6 +541,7 @@ fun NodeCard(node: NodeEntity, modifier: Modifier = Modifier, lifted: Boolean = 
         color = bg,
         contentColor = if (node.color != null) readableOn(bg) else colors.onSecondaryContainer,
         shadowElevation = if (lifted) 8.dp else 1.dp,
+        border = if (selected) BorderStroke(3.dp, colors.primary) else null,
     ) {
         Box(Modifier.padding(8.dp)) {
             if (node.text.isBlank()) {

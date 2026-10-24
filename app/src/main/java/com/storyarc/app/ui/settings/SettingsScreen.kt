@@ -24,7 +24,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.storyarc.app.data.settings.Settings
 import com.storyarc.app.ui.common.appContainer
 import com.storyarc.app.ui.project.SectionHeader
 import kotlinx.coroutines.launch
@@ -32,8 +31,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
-    val settingsRepo = appContainer().settings
-    val settings by settingsRepo.settings.collectAsStateWithLifecycle(Settings())
+    val settingsRepo = appContainer().settingsRepository
+    val settings by appContainer().settings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var delay by remember { mutableFloatStateOf(settings.barrierDelayMs.toFloat()) }
     LaunchedEffect(settings.barrierDelayMs) { delay = settings.barrierDelayMs.toFloat() }

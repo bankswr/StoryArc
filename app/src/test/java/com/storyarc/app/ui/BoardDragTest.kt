@@ -2,7 +2,16 @@ package com.storyarc.app.ui
 
 import androidx.activity.compose.setContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performTouchInput
@@ -157,5 +166,34 @@ class BoardDragTest {
         longPressAndMove(label, centerOf("Leaves") - Offset(slotPx / 2 - 20f, 0f))
         release()
         eventually { assertEquals(0, markerSlot()) }
+    }
+
+    @Test
+    fun groupSelectedNodesThenDragGroupByItsBar() {
+        open()
+        compose.onNodeWithContentDescription("Select nodes").performClick()
+        compose.onNodeWithText("Leaves").performClick()
+        compose.onNodeWithText("Storm").performClick()
+        compose.onNodeWithText("2 · Ready to group").assertExists()
+        compose.onNodeWithText("Group").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("Voyage")
+        compose.onNode(hasText("Group") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
+        eventually { assertEquals(1, runBlocking { repo.board.groups(view) }.size) }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Voyage")).fetchSemanticsNodes().isNotEmpty() }
+
+        // The bar sits in the strip at the bottom of the Mara row (row 264px tall, text 36px below its top).
+        val leaves = centerOf("Leaves")
+        val textTop = compose.onAllNodes(hasText("Leaves")).fetchSemanticsNodes().first().boundsInRoot.top
+        val bar = Offset(leaves.x, textTop - 36f + 264f - 10f)
+        longPressAndMove(bar, bar + Offset(0f, 264f))
+        release()
+        eventually {
+            assertEquals("Joss" to 0, slotOf("Leaves"))
+            assertEquals("Joss" to 1, slotOf("Storm"))
+            assertEquals("Joss" to 2, slotOf("Waits"))
+            assertEquals(3, markerSlot())
+            val g = runBlocking { repo.board.groups(view) }.single()
+            assertEquals("Joss", runBlocking { repo.projects.timeline(g.timelineId)!!.name })
+        }
     }
 }
