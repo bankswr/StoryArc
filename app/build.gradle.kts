@@ -40,12 +40,29 @@ android {
     }
 }
 
+base {
+    archivesName.set("storyarc")
+}
+
 kotlin {
     compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
 }
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+// Every assemble<Variant> also copies its APK into <root>/latest-release (gitignored).
+val latestRelease = rootProject.layout.projectDirectory.dir("latest-release")
+androidComponents {
+    onVariants { variant ->
+        val name = variant.name.replaceFirstChar { it.uppercase() }
+        val copy = tasks.register<Copy>("copy${name}ApkToLatestRelease") {
+            from(variant.artifacts.get(com.android.build.api.artifact.SingleArtifact.APK)) { include("*.apk") }
+            into(latestRelease)
+        }
+        tasks.matching { it.name == "assemble$name" }.configureEach { finalizedBy(copy) }
+    }
 }
 
 dependencies {

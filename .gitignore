@@ -8,3 +8,5 @@ captures/
 .DS_Store
 # Source zip; its Android resources live in app/src/main/res
 IconKitchen-Output.zip
+# Copies of the most recent build outputs (see app/build.gradle.kts)
+latest-release/

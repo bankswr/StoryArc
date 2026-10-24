@@ -7,7 +7,7 @@ How to build StoryArc on this machine, and the toolchain constraints behind the 
 - The system Java (`/usr/lib/jvm/java-21-openjdk-amd64`) is a JRE with no `javac`, so Gradle cannot compile with it. Use Android Studio's bundled JDK:
   ```sh
   export JAVA_HOME=~/android-studio/jbr
-  ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
+  ./gradlew assembleDebug        # → app/build/outputs/apk/debug/storyarc-debug.apk (copied to latest-release/)
   ./gradlew test                 # all JVM unit tests (:board and :app/Robolectric)
   ```
 - Android SDK: `~/Android/Sdk` (platform android-36 only). `local.properties` (gitignored) sets `sdk.dir`.
@@ -34,3 +34,8 @@ How to build StoryArc on this machine, and the toolchain constraints behind the 
 - A `withFrameNanos` loop that keeps running prevents Compose from going idle, and test synchronisation then times out. Run frame loops only while they're doing work (e.g. auto-scroll only near an edge that can scroll).
 - Dialogs use `AppAlertDialog` (`ui/common/Common.kt`), which sets `usePlatformDefaultWidth = false`. With the platform default width, a landscape dialog's window and content re-measured each other between two widths forever, and the app never went idle under Robolectric. Diagnose "Compose did not get idle" by sampling the `SDK 35 Main Thread` with `jstack`: repeated measure/text-layout frames with no recomposition point to a layout loop.
 - Navigate only on the main thread. After a Room suspend call, a coroutine can resume on a Room thread in tests, so wrap navigation in `withContext(Dispatchers.Main)`.
+
+## Build outputs
+
+- APKs are named `storyarc-<variant>.apk` (`base.archivesName` in `app/build.gradle.kts`).
+- Every `assemble<Variant>` is finalized by `copy<Variant>ApkToLatestRelease`, which copies the APK into `latest-release/` at the repo root. That folder is gitignored and always holds the most recent build of each variant.

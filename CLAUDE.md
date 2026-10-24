@@ -10,5 +10,5 @@ Android app (Kotlin, Jetpack Compose, Room) for planning creative projects on pa
 
 Set `JAVA_HOME=~/android-studio/jbr` before running Gradle (the system Java has no compiler). See `agent-notes/build-environment.md`.
 
-- `./gradlew assembleDebug`: debug APK at `app/build/outputs/apk/debug/app-debug.apk`
+- `./gradlew assembleDebug`: debug APK at `app/build/outputs/apk/debug/storyarc-debug.apk (copied to latest-release/)`
 - `./gradlew test`: all tests (JVM and Robolectric; no device needed)
