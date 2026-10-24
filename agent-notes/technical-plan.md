@@ -42,12 +42,12 @@ All primary keys are UUID strings. This makes backup import and merge safe from 
 - `Timeline(id, projectId, name, color?)`: shared content.
 - `ViewTimeline(viewId, timelineId, ordinal)`: membership and order within a view (timelines are reorderable per view).
 - `Node(id, projectId, text, color?)`: shared content. `color` is the override color.
-- `Placement(viewId, nodeId, timelineId, slot)`: the node's position in a view. Unique on `(viewId, nodeId)` and on `(viewId, timelineId, slot)`.
+- `Placement(viewId, nodeId, timelineId, slot, groupId?)`: the node's position in a view and its innermost group. Primary key `(viewId, nodeId)`. There is deliberately no unique index on `(viewId, timelineId, slot)`: slot renumbering inside a transaction would collide mid-update. The board engine enforces one node per cell.
 
 ### Positional constructs (per-view)
 - `Marker(id, viewId, slot, label, color?)`. Markers are per-view. When a view is created by import, markers are copied.
-- `NodeGroup(id, viewId, timelineId, parentGroupId?, label, color?)`
-- `GroupMember(groupId, nodeId)`: a node is a member of its innermost group only. Ancestry comes from `parentGroupId`.
+- `NodeGroup(id, viewId, timelineId, parentId?, label, color?)`
+- Membership is `Placement.groupId` (the innermost group); there is no separate member table. Ancestry comes from `parentId`.
 
 ### Tags
 - `Tag(id, projectId?, worldId?, name, color?, linkedNoteId?)`. Exactly one owner is set:
@@ -64,6 +64,8 @@ All primary keys are UUID strings. This makes backup import and merge safe from 
 - `NoteLink(fromNoteId, toNoteId)`
 
 Room schema export is enabled from day one (`room.schemaLocation`), and migrations are tested.
+
+Foreign keys are all `deferred`, so a change set can write rows in any order inside one transaction. `CASCADE` is used only for ownership (project, world, view, and rows owned by a node, timeline, marker, group or tag). References between peers (group parent, a placement's group, note category, tag → note link) have no action, so an incomplete change set fails at commit instead of silently rewriting rows. The change-set writer applies all upserts before any deletes, and uses `@Upsert`, never `REPLACE`, which would trigger cascades.
 
 ## Board engine (`:board`)
 
@@ -111,7 +113,7 @@ The engine is tested with example-based unit tests for each rule, plus seeded ra
   - an in-memory stack, bounded to 200 entries, cleared on process death;
   - text edits are coalesced per field per editing session.
   - Persisting undo history across restarts is deferred.
-- **Delete from view** removes the `Placement` and its group membership. **Delete everywhere** removes the `Node` (cascading to all placements, members and tags). Removing a node from its last view asks for confirmation and then deletes it everywhere. Both are undoable.
+- **Delete from view** removes the `Placement` (and with it the group membership). **Delete everywhere** removes the `Node` (cascading to all placements, members and tags). Removing a node from its last view asks for confirmation and then deletes it everywhere. Both are undoable.
 
 ## UI
 
