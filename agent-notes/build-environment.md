@@ -1,0 +1,21 @@
+# Build environment
+
+How to build StoryArc on this machine, and the toolchain constraints behind the pinned versions. Recorded 2026-10-24.
+
+## Building
+
+- The system Java (`/usr/lib/jvm/java-21-openjdk-amd64`) is a JRE with no `javac`, so Gradle cannot compile with it. Use Android Studio's bundled JDK:
+  ```sh
+  export JAVA_HOME=~/android-studio/jbr
+  ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
+  ./gradlew test                 # all JVM unit tests (:board and :app/Robolectric)
+  ```
+- Android SDK: `~/Android/Sdk` (platform android-36 only). `local.properties` (gitignored) sets `sdk.dir`.
+- Don't use `jvmToolchain(...)` in build scripts: no JDK 17 is installed and toolchain download isn't configured. Modules target JVM 17 bytecode through `compilerOptions.jvmTarget` / `compileOptions`.
+- The user installs the debug APK themselves; there is no emulator workflow.
+
+## Version constraints
+
+- AGP 8.13.0 + Gradle 8.14.3 (both already cached locally). AGP 8.13 supports compileSdk up to 36.
+- AndroidX releases from mid-2026 onward (core 1.19+, lifecycle 2.10+/2.11, navigation 2.10+) require compileSdk 37 **and** AGP 9.1+. They fail the AAR metadata check, and a newer Compose BOM can pull them in transitively. Current pins: core 1.18.0, lifecycle 2.9.4, navigation 2.9.8, activity 1.12.2, Compose BOM 2026.03.01.
+- Moving to AGP 9 means installing platform 37 and migrating to AGP 9's built-in Kotlin support (the `org.jetbrains.kotlin.android` plugin is no longer applied). Treat it as a separate, deliberate upgrade.

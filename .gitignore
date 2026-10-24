@@ -1,0 +1,10 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+.DS_Store
+# Source zip; its Android resources live in app/src/main/res
+IconKitchen-Output.zip
