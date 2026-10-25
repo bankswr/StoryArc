@@ -191,6 +191,39 @@ class StoryRepository(
         boardEdit(viewId, "Remove timeline", extra) { it.removeTimeline(timelineId) }
     }
 
+    /**
+     * Removes a timeline from a view and moves its nodes and groups to the view's tray. The
+     * timeline itself is deleted if no other view uses it.
+     */
+    suspend fun moveTimelineToTray(viewId: String, timelineId: String) = lock.withLock {
+        val extra = buildList {
+            if (board.viewTimelinesOf(timelineId).all { it.viewId == viewId }) add(Change(requireNotNull(projects.timeline(timelineId)), null))
+        }
+        layoutEdit(viewId, "Timeline to tray", extra) { it.timelineToTray(timelineId) }
+    }
+
+    /**
+     * Deletes a timeline from every view, with every node placed on it in any view (those nodes
+     * are deleted everywhere, as from the trash).
+     */
+    suspend fun deleteTimelineEverywhere(timelineId: String) = lock.withLock {
+        val timeline = requireNotNull(projects.timeline(timelineId))
+        val views = board.viewTimelinesOf(timelineId).map { it.viewId }
+        val nodeIds = views.flatMap { v -> board.placements(v).filter { it.timelineId == timelineId }.map { it.nodeId } }.toSet()
+        val changes = buildList {
+            for (v in (views + nodeIds.flatMap { board.viewsOfNode(it) }).distinct()) {
+                val before = ViewRows.load(board, v)
+                val without = before.toLayout().without(nodeIds)
+                val after = if (v in views) without.copy(board = without.board.removeTimeline(timelineId)) else without
+                addAll(layoutChanges(before, before.withLayout(after)))
+            }
+            nodeIds.forEach { n -> addAll(board.nodeTags(n).map { Change(it, null) }) }
+            nodeIds.forEach { n -> add(Change(requireNotNull(projects.node(n)), null)) }
+            add(Change(timeline, null))
+        }
+        perform(timeline.projectId, ChangeSet("Delete timeline", changes))
+    }
+
     /** Deletes of a node and its tags if [viewId] is the only view holding it (placed or in the tray). */
     private suspend fun orphanDeletes(nodeId: String, viewId: String): List<Change> {
         if (board.viewsOfNode(nodeId).any { it != viewId }) return emptyList()

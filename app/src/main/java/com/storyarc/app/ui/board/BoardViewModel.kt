@@ -128,6 +128,16 @@ class BoardViewModel(
 
     fun deleteGroupWithNodes(groupId: String) = launch { deleteGroupWithNodes(viewId, groupId) }
 
+    fun addTimeline(name: String) = launch { addTimeline(viewId, name) }
+
+    fun renameTimeline(timelineId: String, name: String) = launch { renameTimeline(timelineId, name) }
+
+    fun moveTimeline(timelineId: String, index: Int) = launch { moveTimeline(viewId, timelineId, index) }
+
+    fun moveTimelineToTray(timelineId: String) = launch { moveTimelineToTray(viewId, timelineId) }
+
+    fun deleteTimeline(timelineId: String) = launch { deleteTimelineEverywhere(timelineId) }
+
     fun removeNodeFromView(nodeId: String) = launch { removeNodeFromView(viewId, nodeId) }
 
     fun deleteNodeEverywhere(nodeId: String) = launch { deleteNodeEverywhere(nodeId) }

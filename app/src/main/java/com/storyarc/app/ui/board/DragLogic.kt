@@ -8,12 +8,17 @@ import com.storyarc.board.extract
 import com.storyarc.board.insert
 import com.storyarc.board.move
 import com.storyarc.board.moveMarker
+import com.storyarc.board.moveTimeline
+import com.storyarc.board.removeTimeline
 
 /** Something being dragged on the board. */
 sealed interface DragItem {
     data class Node(val id: String) : DragItem
     data class Group(val id: String) : DragItem
     data class Marker(val id: String) : DragItem
+
+    /** A timeline, picked up by its header. */
+    data class Timeline(val id: String) : DragItem
 }
 
 /** The engine item a dragged node or group moves as; null for markers. */
@@ -21,13 +26,16 @@ val DragItem.item: Item?
     get() = when (this) {
         is DragItem.Node -> Item.Node(id)
         is DragItem.Group -> Item.GroupItem(id)
-        is DragItem.Marker -> null
+        is DragItem.Marker, is DragItem.Timeline -> null
     }
 
 /** Where a drag would land, in the coordinates of the board before the move. */
 sealed interface DragTarget {
     data class Place(val drop: Drop) : DragTarget
     data class MarkerAt(val beforeSlot: Int) : DragTarget
+
+    /** A timeline moved to position [index] in the view's order. */
+    data class TimelineAt(val index: Int) : DragTarget
 
     /** Into the tray at insertion point [index] (0..size). */
     data class Tray(val index: Int) : DragTarget
@@ -58,6 +66,9 @@ fun resolveTarget(
     cy: Float,
     unlocked: Set<String>,
 ): Resolution {
+    if (item is DragItem.Timeline) {
+        return Resolution(DragTarget.TimelineAt((cy / g.rowHeight).toInt().coerceIn(0, board.timelines.lastIndex)))
+    }
     val s = g.slotAt(cx)
     val frac = ((cx - g.x(s)) / g.width(s)).coerceIn(0f, 1f)
     if (item is DragItem.Marker) return Resolution(DragTarget.MarkerAt(if (frac < 0.5f) s else s + 1))
@@ -89,7 +100,7 @@ fun resolveTarget(
 private fun originSlot(board: BoardState, item: DragItem): Int? = when (item) {
     is DragItem.Node -> board.placements[item.id]?.slot
     is DragItem.Group -> board.nodesOf(item.id).firstOrNull()?.let { board.placements.getValue(it).slot }
-    is DragItem.Marker -> null
+    is DragItem.Marker, is DragItem.Timeline -> null
 }
 
 /**
@@ -103,6 +114,8 @@ fun preview(board: BoardState, item: DragItem, target: DragTarget, collapse: Boo
         target is DragTarget.Place && fromTray != null -> board.insert(fromTray, target.drop, collapse)
         target is DragTarget.Place && engineItem != null -> board.move(engineItem, target.drop, collapse)
         item is DragItem.Marker && target is DragTarget.MarkerAt -> board.moveMarker(item.id, target.beforeSlot, collapse)
+        item is DragItem.Timeline && target is DragTarget.TimelineAt -> board.moveTimeline(item.id, target.index)
+        item is DragItem.Timeline && (target is DragTarget.Tray || target is DragTarget.Trash) -> board.removeTimeline(item.id)
         // Leaving the board for the tray or the trash.
         (target is DragTarget.Tray || target is DragTarget.Trash) && fromTray == null && engineItem != null ->
             board.extract(engineItem, collapse).first

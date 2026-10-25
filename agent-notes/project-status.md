@@ -18,6 +18,7 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 | M11 | TalkBack move actions on cards and markers; a non-collapsing drag preview, so columns don't shift under the finger; a large-board performance test (~1 ms per move at 2,000 nodes). |
 | After M11 | Horizontal/vertical board layout setting (`VerticalBoardTest`). |
 | After M11 | Per-view tray, floating new-node editor, copy of nodes and groups, drag-to-trash (`TrayTest`, `TrayBoardTest`, `TrayGeometryTest`, `MigrationTest`). DB schema v2, backup format 2 (format 1 still restores). |
+| After M11 | Timeline headers: tap to edit, drag to reorder / tray / trash, + to add. Tray sort (manual, A–Z, by primary tag) and filter (tag, search) — `TrayView.kt`, `TrayViewTest`. |
 
 ## How it's verified
 

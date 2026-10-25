@@ -193,4 +193,36 @@ class TrayTest {
         assertNull(repo.projects.node(blank))
         assertEquals(2, layout().tray.size)
     }
+
+    @Test
+    fun timelineToTrayKeepsGroupsAndOrder() = runBlocking {
+        val x = repo.addNode(v, "x", Drop.Onto(a, 0))
+        val y = repo.addNode(v, "y", Drop.Onto(a, 1))
+        val z = repo.addNode(v, "z", Drop.Onto(a, 3))
+        repo.addNode(v, "w", Drop.Onto(b, 2))
+        val g = repo.createGroup(v, listOf(x, y), "Pair")
+        repo.moveTimelineToTray(v, a)
+        val l = layout()
+        assertEquals(listOf(b), l.board.timelines)
+        assertEquals(listOf(Item.GroupItem(g), Item.Node(z)), l.tray.map { it.item })
+        assertNull("only this view used it", repo.projects.timeline(a))
+        repo.undo(p)
+        assertEquals(listOf(a, b), layout().board.timelines)
+        assertEquals(listOf(x, y), layout().board.nodesOf(g))
+    }
+
+    @Test
+    fun deleteTimelineRemovesItsNodesEverywhere() = runBlocking {
+        val x = repo.addNode(v, "x", Drop.Onto(a, 0))
+        val keep = repo.addNode(v, "keep", Drop.Onto(b, 0))
+        val other = repo.createView(p, "Other", from = v, import = StoryRepository.ViewImport.TIMELINES_AND_NODES)
+        val before = ViewRows.load(repo.board, v) to ViewRows.load(repo.board, other)
+        repo.deleteTimelineEverywhere(a)
+        assertNull(repo.projects.timeline(a))
+        assertNull(repo.projects.node(x))
+        assertEquals(listOf(b), ViewRows.load(repo.board, other).toBoard().timelines)
+        assertEquals("keep", repo.projects.node(keep)?.text)
+        repo.undo(p)
+        assertEquals(before, ViewRows.load(repo.board, v) to ViewRows.load(repo.board, other))
+    }
 }

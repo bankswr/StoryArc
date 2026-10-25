@@ -23,6 +23,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -119,6 +122,10 @@ sealed interface BoardHit {
     /** The new node floating over the board. */
     data class Floating(val nodeId: String) : BoardHit
     data object TrayToggle : BoardHit
+    data object TrayOptions : BoardHit
+
+    /** The plus button after the last timeline. */
+    data object AddTimeline : BoardHit
 }
 
 /**
@@ -132,6 +139,9 @@ object BoardDims {
     fun row(vertical: Boolean) = if (vertical) 132.dp else 88.dp
     val marker = 40.dp
     val cardPadding = 4.dp
+
+    /** Thickness of the add-timeline button after the last timeline (not zoomed). */
+    val addTimeline = 48.dp
 
     /** Band along the trailing edge of each timeline where group bars are drawn and grabbed. */
     val groupStrip = 16.dp
@@ -188,6 +198,7 @@ fun BoardCanvas(
     trayExpanded: Boolean = true,
     floating: String? = null,
     trayHidden: Set<String> = emptySet(),
+    trayView: TrayView = TrayView(),
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -196,6 +207,7 @@ fun BoardCanvas(
     val headerPx = with(density) { headerDp.toPx() }
     val stripPx = with(density) { BoardDims.groupStrip.toPx() } * viewport.zoom
     val edgePx = with(density) { BoardDims.autoScrollEdge.toPx() }
+    val addPx = with(density) { BoardDims.addTimeline.toPx() }
     val colors = MaterialTheme.colorScheme
 
     fun geometryFor(board: BoardState) = with(density) {
@@ -222,7 +234,8 @@ fun BoardCanvas(
     val baseSpans = remember(ui.board) { groupSpans(ui.board) }
     val spans = remember(shown) { groupSpans(shown) }
     // Tray items as listed (the floating node is not); indices map back into ui.tray.
-    val listed = ui.tray.filter { b -> b.root != null || b.nodes.keys.single() !in trayHidden }
+    val unhidden = ui.tray.filter { b -> b.root != null || b.nodes.keys.single() !in trayHidden }
+    val listed = remember(ui, unhidden, trayView) { ui.arrangeTray(unhidden, trayView) }
     val floatingNode = floating?.takeIf { id -> ui.tray.any { it.root == null && id in it.nodes } }?.let { ui.nodes[it] }
 
     val currentUi by rememberUpdatedState(ui)
@@ -233,6 +246,7 @@ fun BoardCanvas(
     val currentOnDrop by rememberUpdatedState(onDrop)
     val currentOnTap by rememberUpdatedState(onTap)
     val currentListed by rememberUpdatedState(listed)
+    val currentTrayView by rememberUpdatedState(trayView)
 
     BoxWithConstraints(modifier.clipToBounds()) {
         val tray = TrayGeometry(
@@ -276,8 +290,11 @@ fun BoardCanvas(
             val t = currentTray
             if (t.onTrash(pointer)) return Resolution(DragTarget.Trash)
             if (t.contains(pointer)) {
-                return Resolution(if (item is DragItem.Marker) DragTarget.None else DragTarget.Tray(trayIndex(t.insertionAt(pointer))))
+                // A sorted or filtered tray has no meaningful insertion point: append.
+                val index = if (currentTrayView.isManual) trayIndex(t.insertionAt(pointer)) else currentUi.tray.size
+                return Resolution(if (item is DragItem.Marker) DragTarget.None else DragTarget.Tray(index))
             }
+            if (currentUi.board.timelines.isEmpty()) return Resolution(DragTarget.None)
             val all = if (currentBarrier.delayEnabled) unlocked else currentUi.board.markers.keys
             val q = local(pointer)
             return resolveTarget(currentUi.board, currentBase, item, q.x + viewport.scrollAlong, q.y + viewport.scrollAcross, all)
@@ -297,9 +314,10 @@ fun BoardCanvas(
             val t = currentTray
             return when {
                 fRect != null && fId != null && fRect.contains(p) -> BoardHit.Floating(fId)
+                t.optionsButton?.contains(p) == true -> BoardHit.TrayOptions
                 t.header.contains(p) -> BoardHit.TrayToggle
                 t.contains(p) -> t.itemAt(p)?.let { currentListed[it] }?.let { b -> b.root?.let { BoardHit.Group(it) } ?: BoardHit.Node(b.nodes.keys.single()) }
-                boardRect.contains(p) -> hitTest(currentUi, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport)
+                boardRect.contains(p) -> hitTest(currentUi, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx)
                 else -> null
             }
         }
@@ -369,7 +387,8 @@ fun BoardCanvas(
                 val first = currentUi.board.placements.getValue(nodes.first()).slot
                 nodes.map { n -> n to axes.screen(g.x(currentUi.board.placements.getValue(n).slot) - g.x(first), 0f) }
             }
-            else -> listOf((item as DragItem.Node).id to Offset.Zero)
+            item is DragItem.Node -> listOf(item.id to Offset.Zero)
+            else -> emptyList()
         }
 
         /** The draggable thing under [p], if any. */
@@ -387,12 +406,18 @@ fun BoardCanvas(
             }
             if (!boardRect.contains(p)) return null
             val ui0 = currentUi
-            val item = when (val hit = hitTest(ui0, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport)) {
+            val item = when (val hit = hitTest(ui0, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx)) {
                 is BoardHit.Node -> DragItem.Node(hit.nodeId)
                 is BoardHit.Marker -> DragItem.Marker(hit.markerId)
                 is BoardHit.Group -> DragItem.Group(hit.groupId)
+                is BoardHit.Timeline -> DragItem.Timeline(hit.timelineId)
                 else -> null
             } ?: return null
+            if (item is DragItem.Timeline) {
+                // The header cell is the grab reference.
+                val row = ui0.board.timelines.indexOf(item.id)
+                return DragStart(item, null, null, axes.screen(0f, currentBase.y(row) - viewport.scrollAcross), immediate = false)
+            }
             val o = itemOrigin(ui0.board, currentBase, item, viewport)
             return DragStart(item, null, null, at(o.x, o.y), immediate = false)
         }
@@ -476,7 +501,9 @@ fun BoardCanvas(
                             DragTarget.None -> false
                             DragTarget.Trash -> true
                             // Dropping a tray item back where it was changes nothing (the floating node docks).
-                            is DragTarget.Tray -> isFloating || s.trayIndex == null || (target.index != s.trayIndex && target.index != s.trayIndex + 1)
+                            // Reordering happens only while the tray shows its stored order.
+                            is DragTarget.Tray -> isFloating || s.trayIndex == null ||
+                                (currentTrayView.isManual && target.index != s.trayIndex && target.index != s.trayIndex + 1)
                             else -> start.block != null || result != ui0.board
                         }
                         if (completed && changed) {
@@ -492,7 +519,8 @@ fun BoardCanvas(
             Box(Modifier.size(with(density) { boardSize.toDpSize() }).clipToBounds()) {
                 BoardContent(
                     ui, shown, geometry, spans, slots, rowOf, dragged, draggedMarker, blockedBy, selected,
-                    session?.item as? DragItem.Group, sx, sy, view, headerDp, headerPx, stripPx, vertical, axes, viewport.zoom,
+                    session?.item as? DragItem.Group, (session?.item as? DragItem.Timeline)?.id,
+                    sx, sy, view, headerDp, headerPx, stripPx, vertical, axes, viewport.zoom,
                     onTap = { currentOnTap(it) },
                     onDrop = { i, t -> currentOnDrop(i, t, false) },
                 )
@@ -500,7 +528,7 @@ fun BoardCanvas(
 
             val targeted = session?.resolution?.target
             TrayStrip(
-                ui, listed, tray,
+                ui, listed, unhidden.size, trayView.isFiltered, tray,
                 highlighted = targeted is DragTarget.Tray,
                 draggingIndex = session?.fromTray?.let { b -> listed.indexOf(b).takeIf { it >= 0 } },
                 onTap = { currentOnTap(it) },
@@ -563,6 +591,23 @@ private fun DragOverlay(ui: BoardUi, s: DragSession, geometry: BoardGeometry, ax
         }
         return
     }
+    if (item is DragItem.Timeline) {
+        // The header cell, following the finger across the timelines.
+        val headerPx = with(density) { BoardDims.header(vertical).toPx() }
+        Surface(
+            Modifier
+                .offset { axes.screen(0f, axes.board(topLeft).y).round() }
+                .size(with(density) { axes.size(headerPx, geometry.rowHeight).toDpSize() }),
+            color = colors.primaryContainer,
+            shadowElevation = 8.dp,
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Box(Modifier.padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
+                Text(ui.timelines.find { it.id == item.id }?.name.orEmpty(), style = MaterialTheme.typography.labelLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        return
+    }
     val cardSize = with(density) { axes.size(geometry.slotWidth, geometry.rowHeight).toDpSize() }
     val padding = cardPadding(vertical, zoom)
     for ((m, shift) in s.members) {
@@ -600,6 +645,7 @@ private fun BoardContent(
     blockedBy: String?,
     selected: Set<String>,
     draggedGroup: DragItem.Group?,
+    draggedTimeline: String?,
     sx: Float,
     sy: Float,
     view: Offset,
@@ -730,13 +776,18 @@ private fun BoardContent(
     // Pinned timeline header: a column on the left, or a row along the top when vertical.
     val headerCell = with(density) { axes.size(headerPx, geometry.rowHeight).toDpSize() }
     val colorEdge = with(density) { axes.size(4.dp.toPx(), geometry.rowHeight).toDpSize() }
+    val byId = ui.timelines.associateBy { it.id }
     Box(Modifier.band(vertical, headerDp).background(colors.surfaceContainer)) {
-        for ((r, t) in ui.timelines.withIndex()) {
+        // In the previewed order, so a dragged timeline's row moves as it would land.
+        for ((r, id) in shown.timelines.withIndex()) {
+            val t = byId[id] ?: continue
             Box(
                 Modifier
                     .offset { axes.screen(0f, geometry.y(r) - sy).round() }
                     .size(headerCell)
-                    .padding(horizontal = 8.dp),
+                    .background(if (id == draggedTimeline) colors.secondaryContainer else Color.Transparent)
+                    .padding(horizontal = 8.dp)
+                    .timelineSemantics(ui, id, onTap, onDrop),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = if (vertical) 2 else 3, overflow = TextOverflow.Ellipsis)
@@ -750,6 +801,35 @@ private fun BoardContent(
                 )
             }
         }
+        // Add a timeline after the last one.
+        Box(
+            Modifier
+                .offset { axes.screen(0f, geometry.contentHeight - sy).round() }
+                .size(with(density) { axes.size(headerPx, BoardDims.addTimeline.toPx()).toDpSize() })
+                .semantics(mergeDescendants = true) { onClick("Add timeline") { onTap(BoardHit.AddTimeline); true } },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Add, "Add timeline", tint = colors.primary)
+        }
+    }
+}
+
+/** Accessibility for a timeline header: edit on activation, reorder, tray and delete actions. */
+private fun Modifier.timelineSemantics(
+    ui: BoardUi,
+    timelineId: String,
+    onTap: (BoardHit) -> Unit,
+    onDrop: (DragItem, DragTarget) -> Unit,
+): Modifier = semantics(mergeDescendants = true) {
+    val i = ui.board.timelines.indexOf(timelineId)
+    val item = DragItem.Timeline(timelineId)
+    stateDescription = "Timeline ${i + 1} of ${ui.board.timelines.size}"
+    onClick("Edit") { onTap(BoardHit.Timeline(timelineId)); true }
+    customActions = buildList {
+        if (i > 0) add(CustomAccessibilityAction("Move earlier") { onDrop(item, DragTarget.TimelineAt(i - 1)); true })
+        if (i < ui.board.timelines.lastIndex) add(CustomAccessibilityAction("Move later") { onDrop(item, DragTarget.TimelineAt(i + 1)); true })
+        add(CustomAccessibilityAction("Move nodes to tray") { onDrop(item, DragTarget.Tray(ui.tray.size)); true })
+        add(CustomAccessibilityAction("Delete with its nodes") { onDrop(item, DragTarget.Trash); true })
     }
 }
 
@@ -807,6 +887,7 @@ private fun itemOrigin(board: BoardState, g: BoardGeometry, item: DragItem, vp: 
             it.slot to board.timelines.indexOf(it.timelineId)
         }
         is DragItem.Marker -> board.markers.getValue(item.id) to 0
+        is DragItem.Timeline -> 0 to board.timelines.indexOf(item.id)
     }
     return Offset(g.x(slot) - vp.scrollAlong, if (item is DragItem.Marker) 0f else g.y(row) - vp.scrollAcross)
 }
@@ -820,10 +901,14 @@ private fun hitTest(
     p: Offset,
     headerPx: Float,
     vp: BoardViewport,
+    addPx: Float,
 ): BoardHit? {
     val cy = p.y + vp.scrollAcross
     val row = g.rowAt(cy)
-    if (p.x < headerPx) return row?.let { BoardHit.Timeline(ui.board.timelines[it]) }
+    if (p.x < headerPx) {
+        if (row == null && cy >= g.contentHeight && cy < g.contentHeight + addPx) return BoardHit.AddTimeline
+        return row?.let { BoardHit.Timeline(ui.board.timelines[it]) }
+    }
     val slot = g.slotAt(p.x - headerPx + vp.scrollAlong)
     ui.board.markerAt(slot)?.let { return BoardHit.Marker(it) }
     if (row == null) return null

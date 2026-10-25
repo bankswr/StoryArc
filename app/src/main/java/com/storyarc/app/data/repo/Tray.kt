@@ -6,6 +6,7 @@ import com.storyarc.board.Item
 import com.storyarc.board.extract
 import com.storyarc.board.insert
 import com.storyarc.board.removeNode
+import com.storyarc.board.removeTimeline
 
 /**
  * Index of the tray item [item] names, or -1: a single-node item by its node, a group item by
@@ -52,3 +53,14 @@ fun Layout.without(nodeIds: Set<String>) = Layout(
     nodeIds.filter { it in board.placements }.fold(board) { b, n -> b.removeNode(n) },
     tray.mapNotNull { it.without(nodeIds) },
 )
+
+/**
+ * Removes timeline [timelineId] from the board, moving its contents to the end of the tray in
+ * slot order: each top-level group as one item (keeping its shape), each ungrouped node alone.
+ */
+fun Layout.timelineToTray(timelineId: String): Layout {
+    val tops = board.nodesOn(timelineId).map { n -> board.groupChain(n).lastOrNull()?.let { Item.GroupItem(it) } ?: Item.Node(n) }.distinct()
+    var out = this
+    for (item in tops) out = out.toTray(item)
+    return out.copy(board = out.board.removeTimeline(timelineId))
+}

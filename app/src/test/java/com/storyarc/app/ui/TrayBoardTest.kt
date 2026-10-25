@@ -225,4 +225,85 @@ class TrayBoardTest {
         release()
         eventually { assertTrue(inTray("Storm")) }
     }
+
+    private fun timelines() = runBlocking { repo.board.viewTimelines(view).map { repo.projects.timeline(it.timelineId)?.name } }
+
+    /** Center of a timeline's header cell. */
+    private fun header(name: String) = bounds(name).center
+
+    @Test
+    fun dragTimelineHeaderReorders() {
+        open()
+        val joss = header("Joss")
+        press(joss)
+        moveTo(joss, header("Mara"))
+        release()
+        eventually { assertEquals(listOf("Joss", "Mara"), timelines()) }
+    }
+
+    @Test
+    fun plusButtonAddsTimeline() {
+        open()
+        compose.onNodeWithContentDescription("Add timeline").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("New timeline")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Add").performClick()
+        eventually { assertEquals(listOf("Mara", "Joss", "Timeline 3"), timelines()) }
+    }
+
+    @Test
+    fun timelineDroppedInTrayMovesItsNodesThere() {
+        open()
+        val mara = header("Mara")
+        press(mara)
+        moveTo(mara, trayCard("Loose") + Offset(250f, 0f))
+        release()
+        eventually {
+            assertEquals(listOf("Joss"), timelines())
+            assertTrue(inTray("Leaves") && inTray("Storm"))
+            assertNull(slotOf("Leaves"))
+        }
+    }
+
+    @Test
+    fun timelineDroppedOnTrashIsDeletedWithItsNodes() {
+        open()
+        val joss = header("Joss")
+        press(joss)
+        compose.onRoot().performTouchInput { moveBy(Offset(0f, 30f)); advanceEventTime(16) }
+        compose.waitForIdle()
+        val trash = compose.onNode(hasContentDescription("Trash")).fetchSemanticsNode().boundsInRoot.center
+        moveTo(joss + Offset(0f, 30f), trash)
+        release()
+        eventually {
+            assertEquals(listOf("Mara"), timelines())
+            assertTrue(runBlocking { repo.board.nodesInView(view).none { it.text == "Waits" } })
+        }
+    }
+
+    @Test
+    fun tappingHeaderOpensTimelineEditor() {
+        open()
+        compose.onRoot().performTouchInput { click(header("Mara")) }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Timeline name")).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test
+    fun traySortsAndFilters() {
+        open()
+        runBlocking { repo.addNodeToTray(view, "Anchor") }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Anchor")).fetchSemanticsNodes().isNotEmpty() }
+        assertTrue("manual: Loose first", bounds("Loose").left < bounds("Anchor").left)
+        compose.onNodeWithContentDescription("Sort and filter").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("A–Z")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("A–Z").performClick()
+        compose.waitForIdle()
+        eventually { assertTrue("A–Z: Anchor first", bounds("Anchor").left < bounds("Loose").left) }
+        compose.onNode(hasSetTextAction()).performTextInput("loo")
+        eventually {
+            assertTrue(compose.onAllNodes(hasText("Anchor")).fetchSemanticsNodes().isEmpty())
+            assertTrue(compose.onAllNodes(hasText("Tray · 1 of 2")).fetchSemanticsNodes().isNotEmpty())
+        }
+        // Display only: the stored order is unchanged.
+        assertEquals(listOf(nodeId("Loose"), nodeId("Anchor")), layout().tray.map { it.nodes.keys.single() })
+    }
 }

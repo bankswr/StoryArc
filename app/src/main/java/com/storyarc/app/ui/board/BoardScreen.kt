@@ -100,6 +100,13 @@ fun BoardScreen(
     var floatingId by rememberSaveable { mutableStateOf<String?>(null) }
     var editingFloating by rememberSaveable { mutableStateOf(false) }
     var trayExpanded by rememberSaveable { mutableStateOf(true) }
+    var editingTimeline by rememberSaveable { mutableStateOf<String?>(null) }
+    var traySort by rememberSaveable { mutableStateOf(TraySort.Manual) }
+    var trayTag by rememberSaveable { mutableStateOf<String?>(null) }
+    var trayQuery by rememberSaveable { mutableStateOf("") }
+    var trayOptions by rememberSaveable { mutableStateOf(false) }
+    val trayView = TrayView(traySort, trayTag, trayQuery)
+    var addingTimeline by rememberSaveable { mutableStateOf(false) }
     val views by repo.projects.observeViews(projectId).collectAsStateWithLifecycle(emptyList())
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -196,14 +203,6 @@ fun BoardScreen(
             val traySide = maxWidth > maxHeight
             when {
                 current == null -> {}
-                current.timelines.isEmpty() -> Column(
-                    Modifier.align(Alignment.Center).padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text("This view has no timelines yet.", style = MaterialTheme.typography.bodyLarge)
-                    Button(onClick = onTimelines) { Text("Add timelines") }
-                }
                 else -> BoardCanvas(
                     current,
                     viewport,
@@ -213,12 +212,17 @@ fun BoardScreen(
                         when (target) {
                             is DragTarget.Place -> engineItem?.let { if (fromTray) vm.placeFromTray(it, target.drop) else vm.move(it, target.drop) }
                             is DragTarget.MarkerAt -> if (item is DragItem.Marker) vm.moveMarker(item.id, target.beforeSlot)
-                            is DragTarget.Tray -> engineItem?.let { vm.moveToTray(it, target.index) }
+                            is DragTarget.TimelineAt -> if (item is DragItem.Timeline) vm.moveTimeline(item.id, target.index)
+                            is DragTarget.Tray -> when {
+                                item is DragItem.Timeline -> vm.moveTimelineToTray(item.id)
+                                else -> engineItem?.let { vm.moveToTray(it, target.index) }
+                            }
                             DragTarget.Trash -> {
                                 when (item) {
                                     is DragItem.Node -> vm.deleteNodeEverywhere(item.id)
                                     is DragItem.Group -> vm.deleteGroupWithNodes(item.id)
                                     is DragItem.Marker -> vm.removeMarker(item.id)
+                                    is DragItem.Timeline -> vm.deleteTimeline(item.id)
                                 }
                                 notify("Deleted", undoable = true)
                             }
@@ -232,27 +236,41 @@ fun BoardScreen(
                     trayExpanded = trayExpanded,
                     floating = floatingId.takeIf { !editingFloating && !finishing },
                     trayHidden = setOfNotNull(floatingId),
+                    trayView = trayView,
                     onTap = { hit ->
                         val sel = selection
                         if (sel != null) {
                             if (hit is BoardHit.Node && current.isPlaced(hit.nodeId)) selection = if (hit.nodeId in sel) sel - hit.nodeId else sel + hit.nodeId
                             if (hit == BoardHit.TrayToggle) trayExpanded = !trayExpanded
+                            if (hit == BoardHit.TrayOptions) trayOptions = true
                             return@BoardCanvas
                         }
                         when (hit) {
                             is BoardHit.Node -> editingNode = hit.nodeId
                             is BoardHit.Marker -> editingMarker = hit.markerId
                             is BoardHit.Empty -> vm.addNode(Drop.Onto(hit.timelineId, hit.slot)) { editingNode = it }
-                            is BoardHit.Timeline -> onTimelines()
+                            is BoardHit.Timeline -> editingTimeline = hit.timelineId
+                            BoardHit.AddTimeline -> addingTimeline = true
                             is BoardHit.Group -> editingGroup = hit.groupId
                             is BoardHit.Floating -> editingFloating = true
                             BoardHit.TrayToggle -> trayExpanded = !trayExpanded
+                            BoardHit.TrayOptions -> trayOptions = true
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            if (current != null && current.timelines.isNotEmpty() && selection == null && !editingFloating) {
+            if (current != null && current.timelines.isEmpty()) {
+                Column(
+                    Modifier.align(Alignment.Center).padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("This view has no timelines yet.", style = MaterialTheme.typography.bodyLarge)
+                    Button(onClick = { addingTimeline = true }) { Text("Add a timeline") }
+                }
+            }
+            if (current != null && selection == null && !editingFloating) {
                 val tray = TrayDims.thickness(traySide, trayExpanded)
                 FloatingActionButton(
                     onClick = {
@@ -317,6 +335,31 @@ fun BoardScreen(
                 onOpenNote = { editingGroup = null; onOpenNote(it) },
                 onCopied = { notify("Copied to the tray", undoable = false) },
             )
+        }
+    }
+    editingTimeline?.let { id ->
+        if (current != null && current.timelines.none { it.id == id }) {
+            LaunchedEffect(id) { editingTimeline = null }
+        } else if (current != null) {
+            TimelineSheet(vm, current, id, onDismiss = { editingTimeline = null })
+        }
+    }
+    if (trayOptions && current != null) {
+        TrayOptionsSheet(
+            current, trayView,
+            onChange = { traySort = it.sort; trayTag = it.tagId; trayQuery = it.query },
+            onDismiss = { trayOptions = false },
+        )
+    }
+    if (addingTimeline) {
+        TextInputDialog(
+            "New timeline",
+            initial = "Timeline ${(current?.timelines?.size ?: 0) + 1}",
+            confirmLabel = "Add",
+            onDismiss = { addingTimeline = false },
+        ) { name ->
+            addingTimeline = false
+            vm.addTimeline(name)
         }
     }
     if (filtering && current != null) {

@@ -19,7 +19,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -236,6 +240,117 @@ fun GroupSheet(
             "Delete",
             onDismiss = { confirmDelete = false },
         ) { vm.deleteGroupWithNodes(groupId); onDismiss() }
+    }
+}
+
+/** A timeline's name and color, with tray and delete actions. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun TimelineSheet(vm: BoardViewModel, ui: BoardUi, timelineId: String, onDismiss: () -> Unit) {
+    val timeline = ui.timelines.find { it.id == timelineId } ?: return
+    var name by remember(timelineId) { mutableStateOf(timeline.name) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    LaunchedEffect(timelineId) { vm.breakCoalescing() }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            OutlinedTextField(
+                name,
+                { name = it; if (it.isNotBlank()) vm.renameTimeline(timelineId, it.trim()) },
+                singleLine = true,
+                label = { Text("Timeline name") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            EditorSection("Color") { ColorPicker(timeline.color, { vm.setColor(ColorTarget.Timeline(timelineId), it) }) }
+            Text(
+                "Long-press the timeline's name to reorder it, or drag it to the tray or the trash.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.moveTimelineToTray(timelineId); onDismiss() }) { Text("Remove, nodes to tray") }
+                TextButton(onClick = { confirmDelete = true }) { Text("Delete with its nodes") }
+            }
+        }
+    }
+    if (confirmDelete) {
+        ConfirmDialog(
+            "Delete timeline?",
+            "The timeline is deleted from every view, along with every node on it. You can undo this.",
+            "Delete",
+            onDismiss = { confirmDelete = false },
+        ) { vm.deleteTimeline(timelineId); onDismiss() }
+    }
+}
+
+/** Sort order, tag filter and search for the tray. */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun TrayOptionsSheet(ui: BoardUi, view: TrayView, onChange: (TrayView) -> Unit, onDismiss: () -> Unit) {
+    // Tags used by something in the tray, by name.
+    val used = ui.tray.flatMap { ui.trayTags(it) }.distinct().mapNotNull { ui.tags[it] }.sortedBy { it.name.lowercase() }
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            EditorSection("Order") {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    val options = listOf(TraySort.Manual to "Manual", TraySort.Alphabetical to "A–Z", TraySort.ByTag to "By tag")
+                    options.forEachIndexed { i, (sort, label) ->
+                        SegmentedButton(
+                            selected = view.sort == sort,
+                            onClick = { onChange(view.copy(sort = sort)) },
+                            shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                        ) { Text(label) }
+                    }
+                }
+                Text(
+                    when (view.sort) {
+                        TraySort.Manual -> "The order you drag items into."
+                        TraySort.Alphabetical -> "By group name or node text."
+                        TraySort.ByTag -> "Items with the same primary tag sit together, A–Z within."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            EditorSection("Search") {
+                OutlinedTextField(
+                    view.query,
+                    { onChange(view.copy(query = it)) },
+                    singleLine = true,
+                    placeholder = { Text("Text or group name") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            EditorSection("Tag") {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(view.tagId == null, { onChange(view.copy(tagId = null)) }, label = { Text("Any") })
+                    used.forEach { tag ->
+                        FilterChip(
+                            view.tagId == tag.id,
+                            { onChange(view.copy(tagId = if (view.tagId == tag.id) null else tag.id)) },
+                            label = { Text(tag.name) },
+                            leadingIcon = { TagDot(tag) },
+                        )
+                    }
+                    FilterChip(
+                        view.tagId == TrayView.UNTAGGED,
+                        { onChange(view.copy(tagId = if (view.tagId == TrayView.UNTAGGED) null else TrayView.UNTAGGED)) },
+                        label = { Text("No tag") },
+                    )
+                }
+            }
+            if (!view.isManual) {
+                Text(
+                    "Dragging within the tray reorders it only in manual order with no filter. Items dropped in now go to the end.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (view != TrayView()) TextButton(onClick = { onChange(TrayView()) }) { Text("Reset") }
+        }
     }
 }
 

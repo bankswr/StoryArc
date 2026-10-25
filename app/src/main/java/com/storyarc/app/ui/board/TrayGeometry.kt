@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.storyarc.app.ui.board.TrayDims.headerButton
 import kotlin.math.floor
 import kotlin.math.hypot
 
@@ -21,6 +22,9 @@ object TrayDims {
     val itemHeight = 68.dp
     val sideItemHeight = 60.dp
     val trash = 56.dp
+
+    /** Width of each button at the end of the tray header. */
+    val headerButton = 40.dp
 
     /** Thickness of the tray across its edge: its height at the bottom, its width at the side. */
     fun thickness(side: Boolean, expanded: Boolean) = when {
@@ -71,6 +75,11 @@ class TrayGeometry(
     val boardSize: Size = if (side) Size(width - thickness, height) else Size(width, height - thickness)
 
     val header = Rect(rect.left, rect.top, rect.right, rect.top + headerPx)
+
+    /** The sort-and-filter button at the header's end, before the collapse chevron; none on a collapsed side tray. */
+    val optionsButton: Rect? = with(density) {
+        if (side && !expanded) null else Rect(header.right - 2 * headerButton.toPx(), header.top, header.right - headerButton.toPx(), header.bottom)
+    }
 
     /** Where items are drawn; empty when collapsed. */
     val itemArea: Rect = if (expanded) Rect(rect.left, header.bottom, rect.right, rect.bottom) else Rect(rect.left, header.bottom, rect.right, header.bottom)

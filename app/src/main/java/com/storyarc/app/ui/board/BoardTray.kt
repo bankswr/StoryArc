@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -49,6 +50,8 @@ import com.storyarc.board.Drop
 fun TrayStrip(
     ui: BoardUi,
     listed: List<Block>,
+    total: Int,
+    filtered: Boolean,
     tray: TrayGeometry,
     highlighted: Boolean,
     draggingIndex: Int?,
@@ -65,38 +68,57 @@ fun TrayStrip(
             .background(if (highlighted) colors.secondaryContainer else colors.surfaceContainerHigh)
             .clipToBounds(),
     ) {
-        // Header
+        // Header: the title toggles the tray; the end buttons are sort/filter and collapse.
         Row(
             Modifier
                 .size(with(density) { tray.header.size.toDpSize() })
-                .padding(horizontal = 8.dp)
-                .semantics(mergeDescendants = true) {
-                    onClick(if (tray.expanded) "Collapse tray" else "Expand tray") { onTap(BoardHit.TrayToggle); true }
-                },
+                .padding(start = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Icon(Icons.Default.Inventory2, null, Modifier.size(18.dp), tint = colors.onSurfaceVariant)
+            val toggle = Modifier.semantics(mergeDescendants = true) {
+                onClick(if (tray.expanded) "Collapse tray" else "Expand tray") { onTap(BoardHit.TrayToggle); true }
+            }
             if (tray.side && !tray.expanded) {
-                Text("${listed.size}", style = MaterialTheme.typography.labelMedium)
+                Row(toggle, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Inventory2, null, Modifier.size(18.dp), tint = colors.onSurfaceVariant)
+                    Text("${listed.size}", style = MaterialTheme.typography.labelMedium)
+                }
             } else {
-                Text(
-                    if (listed.isEmpty()) "Tray" else "Tray · ${listed.size}",
-                    style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                // Chevron points where the tray will go: toward its edge when expanded.
-                Icon(
-                    if (tray.expanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                    null,
-                    Modifier.size(20.dp).rotate(if (tray.side) -90f else 0f),
-                    tint = colors.onSurfaceVariant,
-                )
+                Row(toggle.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.Inventory2, null, Modifier.size(18.dp), tint = colors.onSurfaceVariant)
+                    Text(
+                        when {
+                            filtered -> "Tray · ${listed.size} of $total"
+                            total == 0 -> "Tray"
+                            else -> "Tray · $total"
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box(
+                    Modifier.size(TrayDims.headerButton, TrayDims.header)
+                        .semantics { onClick("Sort and filter tray") { onTap(BoardHit.TrayOptions); true } },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Default.Tune, "Sort and filter", Modifier.size(20.dp), tint = if (filtered) colors.primary else colors.onSurfaceVariant)
+                }
+                Box(Modifier.size(TrayDims.headerButton, TrayDims.header), contentAlignment = Alignment.Center) {
+                    // Chevron points where the tray will go: toward its edge when expanded.
+                    Icon(
+                        if (tray.expanded) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                        null,
+                        Modifier.size(20.dp).rotate(if (tray.side) -90f else 0f),
+                        tint = colors.onSurfaceVariant,
+                    )
+                }
             }
         }
         if (tray.expanded && listed.isEmpty()) {
             Text(
-                "Unplaced nodes wait here. Drag a node here to take it off the board.",
+                if (total > 0) "Nothing matches the filter." else "Unplaced nodes wait here. Drag a node here to take it off the board.",
                 style = MaterialTheme.typography.bodySmall,
                 color = colors.onSurfaceVariant,
                 modifier = Modifier
