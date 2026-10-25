@@ -12,6 +12,7 @@ import com.storyarc.app.data.repo.StoryRepository
 import com.storyarc.app.data.repo.StoryRepository.ColorTarget
 import com.storyarc.app.data.repo.StoryRepository.TagTarget
 import com.storyarc.app.data.repo.ViewRows
+import com.storyarc.board.Block
 import com.storyarc.board.BoardState
 import com.storyarc.board.Drop
 import com.storyarc.board.Item
@@ -22,7 +23,10 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** Everything the board screen draws for one view. Tag lists are ordered, primary first. */
+/**
+ * Everything the board screen draws for one view. Tag lists are ordered, primary first.
+ * [nodes] and [groups] include the tray's; [tray] lists its items in order.
+ */
 data class BoardUi(
     val view: ViewEntity,
     val board: BoardState,
@@ -35,7 +39,12 @@ data class BoardUi(
     val markerTags: Map<String, List<String>> = emptyMap(),
     val groupTags: Map<String, List<String>> = emptyMap(),
     val hiddenTags: Set<String> = emptySet(),
+    val tray: List<Block> = emptyList(),
 ) {
+    fun isPlaced(nodeId: String) = nodeId in board.placements
+
+    fun isOnBoard(groupId: String) = groupId in board.groups
+
     /** The item's own color, else its primary tag's color, else null (theme default). */
     fun colorOf(own: Int?, tagIds: List<String>?): Int? = own ?: tagIds?.firstOrNull()?.let { tags[it]?.color }
 
@@ -71,6 +80,7 @@ class BoardViewModel(
         return BoardUi(
             view = view,
             board = rows.toBoard(),
+            tray = rows.toTray(),
             timelines = rows.timelines.sortedBy { it.ordinal }.mapNotNull { timelines[it.timelineId] },
             nodes = repo.board.nodesInView(viewId).associateBy { it.id },
             markers = rows.markers.associateBy { it.id },
@@ -99,6 +109,24 @@ class BoardViewModel(
     fun breakCoalescing() = repo.undoManager(projectId).breakCoalescing()
 
     fun move(item: Item, drop: Drop) = launch { move(viewId, item, drop) }
+
+    /** Creates an empty node in the tray and reports its id. */
+    fun addNodeToTray(onCreated: (String) -> Unit) = launch { onCreated(addNodeToTray(viewId)) }
+
+    fun discardNewNode(nodeId: String) = launch { discardNewNode(viewId, nodeId) }
+
+    /** Discards the new node if it is still blank, then reports whether it was discarded. */
+    fun finishNewNode(nodeId: String, onDone: (Boolean) -> Unit) = launch { onDone(discardNewNodeIfBlank(viewId, nodeId)) }
+
+    fun moveToTray(item: Item, index: Int? = null) = launch { moveToTray(viewId, item, index) }
+
+    fun placeFromTray(item: Item, drop: Drop) = launch { placeFromTray(viewId, item, drop) }
+
+    fun copyNode(nodeId: String) = launch { copyNode(viewId, nodeId) }
+
+    fun copyGroup(groupId: String) = launch { copyGroup(viewId, groupId) }
+
+    fun deleteGroupWithNodes(groupId: String) = launch { deleteGroupWithNodes(viewId, groupId) }
 
     fun removeNodeFromView(nodeId: String) = launch { removeNodeFromView(viewId, nodeId) }
 

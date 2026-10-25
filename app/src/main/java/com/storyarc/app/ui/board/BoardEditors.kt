@@ -7,6 +7,11 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import com.storyarc.board.Item
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -85,7 +90,36 @@ private fun TagsAndColor(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * A node's text, tags and color. With [autoFocus] the text field takes focus (and the keyboard
+ * opens). [onTextChange] sees each edit before it is saved.
+ */
+@Composable
+fun NodeFields(
+    vm: BoardViewModel,
+    nodeId: String,
+    ui: BoardUi,
+    onOpenNote: (String) -> Unit,
+    autoFocus: Boolean = false,
+    onTextChange: (String) -> Unit = {},
+) {
+    val node = ui.nodes[nodeId] ?: return
+    var text by remember(nodeId) { mutableStateOf(node.text) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(nodeId) {
+        vm.breakCoalescing()
+        if (autoFocus) focus.requestFocus()
+    }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { text = it; onTextChange(it); vm.editNodeText(nodeId, it) },
+        label = { Text("Note") },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp).focusRequester(focus),
+    )
+    TagsAndColor(vm, ui, ui.nodeTags[nodeId].orEmpty(), node.color, TagTarget.Node(nodeId), ColorTarget.Node(nodeId), onOpenNote)
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun NodeEditorSheet(
     vm: BoardViewModel,
@@ -94,49 +128,37 @@ fun NodeEditorSheet(
     onDismiss: () -> Unit,
     onSelect: (String) -> Unit,
     onOpenNote: (String) -> Unit,
+    onCopied: () -> Unit = {},
 ) {
-    val node = ui.nodes.getValue(nodeId)
-    var text by remember(nodeId) { mutableStateOf(node.text) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var confirmLastRemove by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(nodeId) { vm.breakCoalescing() }
+    val placed = ui.isPlaced(nodeId)
+    // Whether another view also holds the node, so removing it here does not delete it.
+    var shared by remember(nodeId) { mutableStateOf(false) }
+    LaunchedEffect(nodeId) { shared = !vm.isLastPlacement(nodeId) }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it; vm.editNodeText(nodeId, it) },
-                label = { Text("Note") },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
-            )
-            TagsAndColor(vm, ui, ui.nodeTags[nodeId].orEmpty(), node.color, TagTarget.Node(nodeId), ColorTarget.Node(nodeId), onOpenNote)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = {
-                    scope.launch {
-                        if (vm.isLastPlacement(nodeId)) confirmLastRemove = true else { vm.removeNodeFromView(nodeId); onDismiss() }
-                    }
-                }) { Text("Remove from view") }
+            if (!placed) Text("In the tray. Long-press it there to place it on the board.", style = MaterialTheme.typography.bodySmall)
+            NodeFields(vm, nodeId, ui, onOpenNote)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.copyNode(nodeId); onCopied(); onDismiss() }) { Text("Copy") }
+                if (placed) {
+                    OutlinedButton(onClick = { vm.moveToTray(Item.Node(nodeId)); onDismiss() }) { Text("Move to tray") }
+                } else if (shared) {
+                    OutlinedButton(onClick = { vm.removeNodeFromView(nodeId); onDismiss() }) { Text("Remove from view") }
+                }
                 TextButton(onClick = { confirmDelete = true }) { Text("Delete everywhere") }
             }
-            TextButton(onClick = { onSelect(nodeId) }) { Text("Select for grouping") }
+            if (placed) TextButton(onClick = { onSelect(nodeId) }) { Text("Select for grouping") }
         }
     }
     if (confirmDelete) {
         ConfirmDialog("Delete node?", "The node is removed from every view. You can undo this.", "Delete", onDismiss = { confirmDelete = false }) {
             vm.deleteNodeEverywhere(nodeId); onDismiss()
         }
-    }
-    if (confirmLastRemove) {
-        ConfirmDialog(
-            "Delete node?",
-            "This view is the only one using this node, so removing it deletes it. You can undo this.",
-            "Delete",
-            onDismiss = { confirmLastRemove = false },
-        ) { vm.removeNodeFromView(nodeId); onDismiss() }
     }
 }
 
@@ -165,11 +187,20 @@ fun MarkerSheet(vm: BoardViewModel, ui: BoardUi, markerId: String, onDismiss: ()
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun GroupSheet(vm: BoardViewModel, ui: BoardUi, groupId: String, onDismiss: () -> Unit, onOpenNote: (String) -> Unit) {
+fun GroupSheet(
+    vm: BoardViewModel,
+    ui: BoardUi,
+    groupId: String,
+    onDismiss: () -> Unit,
+    onOpenNote: (String) -> Unit,
+    onCopied: () -> Unit = {},
+) {
     val group = ui.groups.getValue(groupId)
+    val onBoard = ui.isOnBoard(groupId)
     var label by remember(groupId) { mutableStateOf(group.label) }
+    var confirmDelete by remember { mutableStateOf(false) }
     LaunchedEffect(groupId) { vm.breakCoalescing() }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -184,9 +215,27 @@ fun GroupSheet(vm: BoardViewModel, ui: BoardUi, groupId: String, onDismiss: () -
                 modifier = Modifier.fillMaxWidth(),
             )
             TagsAndColor(vm, ui, ui.groupTags[groupId].orEmpty(), group.color, TagTarget.Group(groupId), ColorTarget.Group(ui.view.id, groupId), onOpenNote)
-            Text("Long-press the group's bar to move the whole group.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { vm.ungroup(groupId); onDismiss() }) { Text("Ungroup") }
+            Text(
+                if (onBoard) "Long-press the group's bar to move the whole group." else "In the tray. Long-press it there to place the whole group.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.copyGroup(groupId); onCopied(); onDismiss() }) { Text("Copy group") }
+                if (onBoard) {
+                    OutlinedButton(onClick = { vm.moveToTray(Item.GroupItem(groupId)); onDismiss() }) { Text("Move to tray") }
+                    TextButton(onClick = { vm.ungroup(groupId); onDismiss() }) { Text("Ungroup") }
+                }
+                TextButton(onClick = { confirmDelete = true }) { Text("Delete group and nodes") }
+            }
         }
+    }
+    if (confirmDelete) {
+        ConfirmDialog(
+            "Delete group?",
+            "The group and every node in it are removed from every view. You can undo this.",
+            "Delete",
+            onDismiss = { confirmDelete = false },
+        ) { vm.deleteGroupWithNodes(groupId); onDismiss() }
     }
 }
 

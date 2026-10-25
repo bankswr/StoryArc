@@ -3,6 +3,10 @@ package com.storyarc.app.ui
 import android.graphics.Bitmap
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import android.graphics.Canvas
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.activity.compose.setContent
@@ -63,6 +67,8 @@ class BoardScreenshotTest {
         repo.addMarker(v, "Day 2", 2)
         repo.addNode(v, "Reunion", Drop.Onto(mara, 3))
         repo.addNode(v, "Reunion", Drop.Onto(joss, 3))
+        repo.addNodeToTray(v, "Unplaced idea: the lighthouse keeper")
+        repo.copyGroup(v, repo.board.groups(v).first { it.label == "Voyage" }.id)
         p to v
     }
 
@@ -81,5 +87,24 @@ class BoardScreenshotTest {
         compose.activity.setContent { StoryArcTheme { BoardScreen(p, v, onBack = {}, onTimelines = {}) } }
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Waits at the inn")).fetchSemanticsNodes().isNotEmpty() }
         save("board")
+    }
+
+    @Test
+    fun newNodeEditor() {
+        val (p, v) = seed()
+        compose.activity.setContent { StoryArcTheme { BoardScreen(p, v, onBack = {}, onTimelines = {}) } }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Waits at the inn")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("Add node")).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("New node")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(androidx.compose.ui.test.hasSetTextAction()).performTextInput("A storm warning")
+        save("board-new-node")
+        compose.onNode(hasText("Done")).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("A storm warning")).fetchSemanticsNodes().size == 1 }
+        save("board-floating")
+        // Mid-drag of the floating card, showing the trash.
+        val card = compose.onAllNodes(hasText("A storm warning")).fetchSemanticsNodes().first().boundsInRoot.center
+        compose.onRoot().performTouchInput { down(card); moveBy(androidx.compose.ui.geometry.Offset(0f, -200f)) }
+        save("board-dragging")
+        compose.onRoot().performTouchInput { up() }
     }
 }

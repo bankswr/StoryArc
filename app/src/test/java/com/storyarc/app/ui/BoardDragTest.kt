@@ -196,7 +196,7 @@ class BoardDragTest {
             assertEquals("Joss" to 2, slotOf("Waits"))
             assertEquals(3, markerSlot())
             val g = runBlocking { repo.board.groups(view) }.single()
-            assertEquals("Joss", runBlocking { repo.projects.timeline(g.timelineId)!!.name })
+            assertEquals("Joss", runBlocking { repo.projects.timeline(g.timelineId!!)!!.name })
         }
     }
 

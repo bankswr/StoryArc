@@ -48,4 +48,6 @@ interface RowDao {
     @Delete suspend fun delete(row: NoteTagEntity)
     @Upsert suspend fun upsert(row: ViewHiddenTagEntity)
     @Delete suspend fun delete(row: ViewHiddenTagEntity)
+    @Upsert suspend fun upsert(row: TrayEntity)
+    @Delete suspend fun delete(row: TrayEntity)
 }

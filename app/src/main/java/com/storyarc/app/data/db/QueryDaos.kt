@@ -65,6 +65,16 @@ interface BoardDao {
     @Query("SELECT * FROM placement WHERE nodeId = :nodeId")
     suspend fun placementsOfNode(nodeId: String): List<PlacementEntity>
 
+    @Query("SELECT * FROM tray_item WHERE viewId = :viewId")
+    suspend fun tray(viewId: String): List<TrayEntity>
+
+    @Query("SELECT * FROM tray_item WHERE nodeId = :nodeId")
+    suspend fun trayOfNode(nodeId: String): List<TrayEntity>
+
+    /** Views holding [nodeId], placed or in the tray. */
+    @Query("SELECT viewId FROM placement WHERE nodeId = :nodeId UNION SELECT viewId FROM tray_item WHERE nodeId = :nodeId")
+    suspend fun viewsOfNode(nodeId: String): List<String>
+
     @Query("SELECT * FROM view_timeline WHERE timelineId = :timelineId")
     suspend fun viewTimelinesOf(timelineId: String): List<ViewTimelineEntity>
 
@@ -83,6 +93,7 @@ interface BoardDao {
     /** Emits whenever any layout or content row of the view changes; the payload is unused. */
     @Query(
         """SELECT (SELECT COUNT(*) FROM placement WHERE viewId = :viewId) +
+                  (SELECT COUNT(*) FROM tray_item WHERE viewId = :viewId) +
                   (SELECT COUNT(*) FROM marker WHERE viewId = :viewId) +
                   (SELECT COUNT(*) FROM node_group WHERE viewId = :viewId) +
                   (SELECT COUNT(*) FROM view_timeline WHERE viewId = :viewId) +
@@ -93,7 +104,11 @@ interface BoardDao {
     )
     fun observeViewChanges(viewId: String): Flow<Int>
 
-    @Query("SELECT n.* FROM node n JOIN placement p ON p.nodeId = n.id WHERE p.viewId = :viewId")
+    /** Nodes in the view, placed or in its tray. */
+    @Query(
+        """SELECT * FROM node WHERE id IN
+           (SELECT nodeId FROM placement WHERE viewId = :viewId UNION SELECT nodeId FROM tray_item WHERE viewId = :viewId)"""
+    )
     suspend fun nodesInView(viewId: String): List<NodeEntity>
 
     @Query("SELECT t.* FROM timeline t JOIN view_timeline vt ON vt.timelineId = t.id WHERE vt.viewId = :viewId")
@@ -126,7 +141,10 @@ interface TagDao {
     @Query("SELECT * FROM tag WHERE id = :id")
     suspend fun tag(id: String): TagEntity?
 
-    @Query("SELECT nt.* FROM node_tag nt JOIN placement p ON p.nodeId = nt.targetId WHERE p.viewId = :viewId")
+    @Query(
+        """SELECT * FROM node_tag WHERE targetId IN
+           (SELECT nodeId FROM placement WHERE viewId = :viewId UNION SELECT nodeId FROM tray_item WHERE viewId = :viewId)"""
+    )
     suspend fun nodeTagsInView(viewId: String): List<NodeTagEntity>
 
     @Query("SELECT mt.* FROM marker_tag mt JOIN marker m ON m.id = mt.targetId WHERE m.viewId = :viewId")
@@ -232,6 +250,9 @@ interface BackupDao {
 
     @Query("SELECT pl.* FROM placement pl JOIN board_view v ON v.id = pl.viewId WHERE v.projectId = :p")
     suspend fun placements(p: String): List<PlacementEntity>
+
+    @Query("SELECT t.* FROM tray_item t JOIN board_view v ON v.id = t.viewId WHERE v.projectId = :p")
+    suspend fun trays(p: String): List<TrayEntity>
 
     @Query("SELECT m.* FROM marker m JOIN board_view v ON v.id = m.viewId WHERE v.projectId = :p")
     suspend fun markers(p: String): List<MarkerEntity>

@@ -189,4 +189,50 @@ class BoardOpsTest {
         assertEquals(listOf("A: a . b c", "B: x . . ."), preview.render())
         assertEquals(listOf("A: a b c", "B: x . ."), b.move(Item.Node("b"), Drop.Onto("A", 2)).render())
     }
+
+    @Test
+    fun `extract a node leaves its group and collapses`() {
+        val b = board("A: a b c", "B: x . y").createGroup("g", listOf("a", "b")).ok()
+        val (rest, block) = b.extract(Item.Node("b"))
+        rest.ok()
+        assertEquals(listOf("A: a c", "B: x y"), rest.render())
+        assertEquals(Block(mapOf("b" to 0)), block)
+        assertEquals("g", rest.membership["a"])
+    }
+
+    @Test
+    fun `extract and insert a nested group round-trips its shape`() {
+        val b = board("A: a b . c d", "B: w x y z q")
+            .createGroup("outer", listOf("b", "c"))
+            .createGroup("inner", listOf("c")).ok()
+        val (rest, block) = b.extract(Item.GroupItem("outer"))
+        rest.ok()
+        assertEquals(mapOf("b" to 0, "c" to 2), block.nodes)
+        assertEquals(mapOf("outer" to null, "inner" to "outer"), block.groups)
+        assertTrue(rest.groups.isEmpty())
+
+        val back = rest.insert(block, Drop.Onto("B", 0)).ok()
+        // The block's internal gap is empty on every timeline after the push, so it collapses.
+        assertEquals(listOf("A: a . . d . . .", "B: b c w x y z q"), back.render())
+        assertEquals(Cell("B", 0), back.placements["b"])
+        assertEquals(Cell("B", 1), back.placements["c"])
+        assertEquals(listOf("inner", "outer"), back.groupChain("c"))
+        assertEquals("B", back.groups.getValue("inner").timelineId)
+    }
+
+    @Test
+    fun `inserting inside a group nests the block`() {
+        val b = board("A: a b c").createGroup("g", listOf("a", "b", "c")).ok()
+        val (rest, block) = b.extract(Item.Node("b"))
+        val back = rest.insert(block, Drop.Between("A", 1)).ok()
+        assertEquals(listOf("A: a b c"), back.render())
+        assertEquals("g", back.membership["b"])
+    }
+
+    @Test
+    fun `block without some nodes drops emptied groups and rebases`() {
+        val block = Block(mapOf("a" to 0, "b" to 1, "c" to 3), mapOf("o" to null, "i" to "o"), mapOf("a" to "i", "b" to "o", "c" to "o"))
+        assertEquals(Block(mapOf("b" to 0, "c" to 2), mapOf("o" to null), mapOf("b" to "o", "c" to "o")), block.without(setOf("a")))
+        assertNull(block.without(setOf("a", "b", "c")))
+    }
 }

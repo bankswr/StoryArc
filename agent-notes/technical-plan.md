@@ -48,6 +48,7 @@ All primary keys are UUID strings. This makes backup import and merge safe from 
 - `Marker(id, viewId, slot, label, color?)`. Markers are per-view. When a view is created by import, markers are copied.
 - `NodeGroup(id, viewId, timelineId, parentId?, label, color?)`
 - Membership is `Placement.groupId` (the innermost group); there is no separate member table. Ancestry comes from `parentId`.
+- **Tray (schema v2):** `TrayItem(viewId, nodeId, ordinal, offset, groupId?)`, PK `(viewId, nodeId)`. Rows sharing an `ordinal` are one tray item; `offset` is the node's slot offset within it; `groupId` its innermost tray group. Tray groups are `NodeGroup` rows with `timelineId = null` (the root has `parentId = null`). `ViewRows.toTray()` / `withLayout(Layout(board, tray))` convert; tray logic lives in `data/repo/Tray.kt`. v1→v2 is a Room `AutoMigration` (new table, nullable column); `MigrationTest` builds a v1 database from `schemas/.../1.json` because Robolectric cannot read schemas as test assets.
 
 ### Tags
 - `Tag(id, projectId?, worldId?, name, color?, linkedNoteId?)`. Exactly one owner is set:
@@ -68,6 +69,8 @@ Room schema export is enabled from day one (`room.schemaLocation`), and migratio
 Foreign keys are all `deferred`, so a change set can write rows in any order inside one transaction. `CASCADE` is used only for ownership (project, world, view, and rows owned by a node, timeline, marker, group or tag). References between peers (group parent, a placement's group, note category, tag → note link) have no action, so an incomplete change set fails at commit instead of silently rewriting rows. The change-set writer applies all upserts before any deletes, and uses `@Upsert`, never `REPLACE`, which would trigger cascades.
 
 ## Board engine (`:board`)
+
+`Block` is a run of nodes detached from a board (node → slot offset, the groups inside it with their parents, membership). `extract(item)` takes a node or group off the board as a `Block`; `insert(block, drop)` lands one (same rules as `move`, including joining an enclosing group). A block's internal gaps collapse when they end up empty on every timeline, as with any move.
 
 ### Slots are implicit
 There is no slot table. A view's slots are the dense indices `0..n-1` used by placements and markers. Invariants, checked after every operation:
@@ -150,7 +153,7 @@ DataStore Preferences: `barrierDelayEnabled` (default true), `barrierDelayMs` (d
 
 ## Backup and restore
 
-- Format: a `.zip` containing `manifest.json` (format version, app version, export time, contents) plus `projects/<id>.json` and `worlds/<id>.json`. The Room entities are `@Serializable` and stored directly; `BackupManager.FORMAT_VERSION` guards the layout, so a schema change that alters entity fields must bump it and convert old files.
+- Format: a `.zip` containing `manifest.json` (format version, app version, export time, contents) plus `projects/<id>.json` and `worlds/<id>.json`. The Room entities are `@Serializable` and stored directly; `BackupManager.FORMAT_VERSION` guards the layout, so a schema change that alters entity fields must bump it and convert old files. Format 2 adds `ProjectBundle.tray` (defaulting to empty, so format 1 files read as-is) and allows null group timelines.
 - Scopes:
   - per project, including the world libraries it links;
   - everything.

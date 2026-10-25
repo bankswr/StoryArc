@@ -105,10 +105,11 @@ data class NodeEntity(
         ForeignKey(NodeGroupEntity::class, ["id"], ["parentId"], deferred = true),
     ],
 )
+/** A group in one view; [timelineId] is null while the group is in the view's tray. */
 data class NodeGroupEntity(
     @PrimaryKey val id: String,
     val viewId: String,
-    val timelineId: String,
+    val timelineId: String?,
     val parentId: String?,
     val label: String = "",
     val color: Int? = null,
@@ -133,6 +134,30 @@ data class PlacementEntity(
     val timelineId: String,
     val slot: Int,
     val groupId: String?,
+)
+
+/**
+ * A node in a view's tray (on no timeline there). Rows sharing an [ordinal] form one tray item;
+ * [offset] is the node's slot offset within it and [groupId] its innermost (tray) group. A
+ * node is either placed in a view or in its tray, never both.
+ */
+@Serializable
+@Entity(
+    tableName = "tray_item",
+    primaryKeys = ["viewId", "nodeId"],
+    indices = [Index("nodeId"), Index("groupId")],
+    foreignKeys = [
+        ForeignKey(ViewEntity::class, ["id"], ["viewId"], onDelete = CASCADE, deferred = true),
+        ForeignKey(NodeEntity::class, ["id"], ["nodeId"], onDelete = CASCADE, deferred = true),
+        ForeignKey(NodeGroupEntity::class, ["id"], ["groupId"], deferred = true),
+    ],
+)
+data class TrayEntity(
+    val viewId: String,
+    val nodeId: String,
+    val ordinal: Int,
+    val offset: Int = 0,
+    val groupId: String? = null,
 )
 
 @Serializable

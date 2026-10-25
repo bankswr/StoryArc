@@ -1,19 +1,22 @@
 package com.storyarc.app.data.db
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    version = 1,
+    version = 2,
     exportSchema = true,
+    // 2: tray_item table; node_group.timelineId nullable (tray groups).
+    autoMigrations = [AutoMigration(from = 1, to = 2)],
     entities = [
         ProjectEntity::class, WorldEntity::class, ProjectWorldEntity::class, ViewEntity::class,
         TimelineEntity::class, ViewTimelineEntity::class, NodeEntity::class, NodeGroupEntity::class,
         PlacementEntity::class, MarkerEntity::class, CategoryEntity::class, NoteEntity::class,
         NoteLinkEntity::class, TagEntity::class, NodeTagEntity::class, MarkerTagEntity::class,
-        GroupTagEntity::class, NoteTagEntity::class, ViewHiddenTagEntity::class,
+        GroupTagEntity::class, NoteTagEntity::class, ViewHiddenTagEntity::class, TrayEntity::class,
     ],
 )
 abstract class StoryDatabase : RoomDatabase() {

@@ -57,6 +57,19 @@ class UndoManager(
         publish()
     }
 
+    /**
+     * Reverts the latest step and forgets it (no redo entry) if [matches] accepts it; for
+     * withdrawing something that should leave no trace, such as a new node left blank.
+     */
+    suspend fun retract(matches: (ChangeSet) -> Boolean): Boolean = mutex.withLock {
+        val cs = undo.lastOrNull()?.takeIf(matches) ?: return@withLock false
+        apply(cs.inverse())
+        undo.removeLast()
+        lastKey = null
+        publish()
+        true
+    }
+
     /** Ends coalescing so the next edit starts a new undo step. */
     fun breakCoalescing() {
         lastKey = null

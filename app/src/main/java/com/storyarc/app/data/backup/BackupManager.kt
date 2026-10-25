@@ -17,6 +17,7 @@ import com.storyarc.app.data.db.ProjectEntity
 import com.storyarc.app.data.db.ProjectWorldEntity
 import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.app.data.db.TagEntity
+import com.storyarc.app.data.db.TrayEntity
 import com.storyarc.app.data.db.TimelineEntity
 import com.storyarc.app.data.db.ViewEntity
 import com.storyarc.app.data.db.ViewHiddenTagEntity
@@ -62,9 +63,11 @@ data class ProjectBundle(
     val markerTags: List<MarkerTagEntity>,
     val groupTags: List<GroupTagEntity>,
     val hiddenTags: List<ViewHiddenTagEntity>,
+    /** Added in format 2; absent (empty) in format 1 backups. */
+    val tray: List<TrayEntity> = emptyList(),
 ) {
     fun rows(): List<Any> = listOf(project) + worldLinks + views + timelines + viewTimelines + nodes + groups +
-        placements + markers + tags + nodeTags + markerTags + groupTags + hiddenTags
+        placements + markers + tags + nodeTags + markerTags + groupTags + hiddenTags + tray
 }
 
 /** Every row owned by one world library. */
@@ -110,7 +113,7 @@ class BackupManager(
     suspend fun projectBundle(p: String) = ProjectBundle(
         requireNotNull(dao.project(p)), dao.projectWorlds(p), dao.views(p), dao.timelines(p), dao.viewTimelines(p),
         dao.nodes(p), dao.groups(p), dao.placements(p), dao.markers(p), dao.projectTags(p), dao.nodeTags(p),
-        dao.markerTags(p), dao.groupTags(p), dao.hiddenTags(p),
+        dao.markerTags(p), dao.groupTags(p), dao.hiddenTags(p), dao.trays(p),
     )
 
     suspend fun worldBundle(w: String) = WorldBundle(
@@ -236,7 +239,7 @@ class BackupManager(
             timelines = b.timelines.map { it.copy(id = m(it.id), projectId = m(p)) },
             viewTimelines = b.viewTimelines.map { it.copy(viewId = m(it.viewId), timelineId = m(it.timelineId)) },
             nodes = b.nodes.map { it.copy(id = m(it.id), projectId = m(p)) },
-            groups = b.groups.map { it.copy(id = m(it.id), viewId = m(it.viewId), timelineId = m(it.timelineId), parentId = mo(it.parentId)) },
+            groups = b.groups.map { it.copy(id = m(it.id), viewId = m(it.viewId), timelineId = it.timelineId?.let(::m), parentId = mo(it.parentId)) },
             placements = b.placements.map { it.copy(viewId = m(it.viewId), nodeId = m(it.nodeId), timelineId = m(it.timelineId), groupId = mo(it.groupId)) },
             markers = b.markers.map { it.copy(id = m(it.id), viewId = m(it.viewId)) },
             tags = b.tags.map { it.copy(id = m(it.id), projectId = m(p)) },
@@ -244,10 +247,12 @@ class BackupManager(
             markerTags = b.markerTags.map { it.copy(targetId = m(it.targetId), tagId = mo(it.tagId)!!) },
             groupTags = b.groupTags.map { it.copy(targetId = m(it.targetId), tagId = mo(it.tagId)!!) },
             hiddenTags = b.hiddenTags.map { it.copy(viewId = m(it.viewId), tagId = mo(it.tagId)!!) },
+            tray = b.tray.map { it.copy(viewId = m(it.viewId), nodeId = m(it.nodeId), groupId = mo(it.groupId)) },
         )
     }
 
     companion object {
-        const val FORMAT_VERSION = 1
+        /** 2: project bundles carry `tray` rows, and groups may have a null timeline (tray groups). */
+        const val FORMAT_VERSION = 2
     }
 }

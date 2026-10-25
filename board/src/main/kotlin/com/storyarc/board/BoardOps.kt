@@ -136,6 +136,98 @@ fun BoardState.createGroup(groupId: String, nodeIds: Collection<String>): BoardS
     }
 }
 
+/**
+ * A run of nodes detached from a board (for example, held in a tray): each node's offset from
+ * the run's first slot, plus the groups wholly inside it. [groups] maps a group to its parent
+ * within the block; the block's top group, if any, maps to null and contains every node.
+ */
+data class Block(
+    val nodes: Map<String, Int>,
+    val groups: Map<String, String?> = emptyMap(),
+    val membership: Map<String, String> = emptyMap(),
+) {
+    init {
+        require(nodes.isNotEmpty()) { "a block holds at least one node" }
+        require(root != null || nodes.size == 1) { "a block of several nodes needs a top group" }
+    }
+
+    /** The block's top group, or null for a single ungrouped node. */
+    val root: String? get() = groups.entries.firstOrNull { it.value == null }?.key
+
+    val width: Int get() = nodes.values.max() + 1
+
+    /** The item this block moves as on a board. */
+    val item: Item get() = root?.let { Item.GroupItem(it) } ?: Item.Node(nodes.keys.single())
+
+    /** Groups of [nodeId] within the block, innermost first. */
+    fun groupChain(nodeId: String): List<String> = generateSequence(membership[nodeId]) { groups[it] }.toList()
+
+    /** The part of the block inside [groupId], as a block of its own. */
+    fun part(groupId: String): Block {
+        require(groupId in groups) { "unknown group $groupId" }
+        val inside = nodes.filterKeys { groupId in groupChain(it) }
+        val first = inside.values.min()
+        val subgroups = groups.keys.filter { g -> generateSequence(g) { groups[it] }.any { it == groupId } }
+        return Block(
+            inside.mapValues { it.value - first },
+            subgroups.associateWith { if (it == groupId) null else groups[it] },
+            membership.filterKeys { it in inside },
+        )
+    }
+
+    /** The block without [nodeIds], with emptied groups dropped; null if nothing is left. */
+    fun without(nodeIds: Set<String>): Block? {
+        val left = nodes.filterKeys { it !in nodeIds }
+        if (left.isEmpty()) return null
+        val first = left.values.min()
+        val members = membership.filterKeys { it in left }
+        val live = members.values.flatMap { g -> generateSequence(g) { groups[it] }.toList() }.toSet()
+        return Block(left.mapValues { it.value - first }, groups.filterKeys { it in live }, members)
+    }
+}
+
+/**
+ * Takes [item] off the board and returns the board without it plus the item as a [Block]. A
+ * single node leaves its groups; a group takes its nested groups along. With [collapse] false
+ * the emptied slots are kept (for previews, as in [move]).
+ */
+fun BoardState.extract(item: Item, collapse: Boolean = true): Pair<BoardState, Block> {
+    val block = when (item) {
+        is Item.Node -> {
+            requireNotNull(placements[item.id]) { "unknown node ${item.id}" }
+            Block(mapOf(item.id to 0))
+        }
+        is Item.GroupItem -> {
+            requireNotNull(groups[item.id]) { "unknown group ${item.id}" }
+            val members = nodesOf(item.id)
+            val first = placements.getValue(members.first()).slot
+            val inside = groups.keys.filter { item.id in ancestorsOf(it) }
+            Block(
+                members.associateWith { placements.getValue(it).slot - first },
+                inside.associateWith { if (it == item.id) null else groups.getValue(it).parentId },
+                members.associateWith { membership.getValue(it) },
+            )
+        }
+    }
+    val board = edit(collapse) {
+        block.nodes.keys.forEach { placements.remove(it); membership.remove(it) }
+        block.groups.keys.forEach { groups.remove(it) }
+    }
+    return board to block
+}
+
+/** Places a detached [block] at [drop] (see [Drop]); its ids must not already be on the board. */
+fun BoardState.insert(block: Block, drop: Drop, collapse: Boolean = true): BoardState {
+    require(block.nodes.keys.none { it in placements }) { "block nodes already placed" }
+    require(block.groups.keys.none { it in groups }) { "block groups already present" }
+    return edit(collapse) {
+        require(drop.timelineId in timelines) { "unknown timeline ${drop.timelineId}" }
+        block.groups.forEach { (id, parent) -> groups[id] = Group(id, drop.timelineId, parent) }
+        membership.putAll(block.membership)
+        land(block.nodes.toList(), block.width, drop, block.item)
+    }
+}
+
 /** Dissolves a group; its members and child groups move up to its parent. */
 fun BoardState.ungroup(groupId: String): BoardState {
     val g = requireNotNull(groups[groupId]) { "unknown group $groupId" }

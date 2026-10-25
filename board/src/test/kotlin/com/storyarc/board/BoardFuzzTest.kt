@@ -90,6 +90,20 @@ class BoardFuzzTest {
                         stable = b.placements.keys + b.markers.keys - m
                         b = b.moveMarker(m, s)
                     }
+                    op < 91 -> {
+                        val item = if (b.groups.isNotEmpty() && rnd.nextBoolean()) Item.GroupItem(b.groups.keys.random(rnd))
+                        else Item.Node(b.placements.keys.random(rnd))
+                        val (rest, block) = b.extract(item)
+                        rest.violations().let { if (it.isNotEmpty()) fail<Unit>("seed $seed step $step extract $item: $it") }
+                        val d = rnd.drop(rest)
+                        label = "extract $item, insert at $d"
+                        b = rest.insert(block, d)
+                        // The block lands whole: in order, on one timeline, with its groups' nesting intact.
+                        val byOffset = block.nodes.entries.sortedBy { it.value }.map { it.key }
+                        assertEquals(byOffset, byOffset.sortedBy { b.placements.getValue(it).slot }, "seed $seed step $step")
+                        assertTrue(byOffset.all { b.placements.getValue(it).timelineId == d.timelineId }, "seed $seed step $step")
+                        block.groups.forEach { (g, parent) -> if (parent != null) assertEquals(parent, b.groups.getValue(g).parentId) }
+                    }
                     op < 94 -> {
                         val id = b.placements.keys.random(rnd)
                         label = "remove $id"

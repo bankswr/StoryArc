@@ -1,8 +1,11 @@
 package com.storyarc.app.ui.board
 
+import com.storyarc.board.Block
 import com.storyarc.board.BoardState
 import com.storyarc.board.Drop
 import com.storyarc.board.Item
+import com.storyarc.board.extract
+import com.storyarc.board.insert
 import com.storyarc.board.move
 import com.storyarc.board.moveMarker
 
@@ -13,10 +16,27 @@ sealed interface DragItem {
     data class Marker(val id: String) : DragItem
 }
 
+/** The engine item a dragged node or group moves as; null for markers. */
+val DragItem.item: Item?
+    get() = when (this) {
+        is DragItem.Node -> Item.Node(id)
+        is DragItem.Group -> Item.GroupItem(id)
+        is DragItem.Marker -> null
+    }
+
 /** Where a drag would land, in the coordinates of the board before the move. */
 sealed interface DragTarget {
     data class Place(val drop: Drop) : DragTarget
     data class MarkerAt(val beforeSlot: Int) : DragTarget
+
+    /** Into the tray at insertion point [index] (0..size). */
+    data class Tray(val index: Int) : DragTarget
+
+    /** Delete the item. */
+    data object Trash : DragTarget
+
+    /** Nowhere: the drop changes nothing. */
+    data object None : DragTarget
 }
 
 /** A resolved target, plus the marker that is holding the item back, if any. */
@@ -75,10 +95,17 @@ private fun originSlot(board: BoardState, item: DragItem): Int? = when (item) {
 /**
  * The board as it would look after dropping [item] at [target]. With [collapse] false the
  * item's emptied column is kept, so columns don't shift under the finger while dragging.
+ * [fromTray] is the item's block when it comes from the tray rather than the board.
  */
-fun preview(board: BoardState, item: DragItem, target: DragTarget, collapse: Boolean = true): BoardState = when {
-    item is DragItem.Node && target is DragTarget.Place -> board.move(Item.Node(item.id), target.drop, collapse)
-    item is DragItem.Group && target is DragTarget.Place -> board.move(Item.GroupItem(item.id), target.drop, collapse)
-    item is DragItem.Marker && target is DragTarget.MarkerAt -> board.moveMarker(item.id, target.beforeSlot, collapse)
-    else -> board
+fun preview(board: BoardState, item: DragItem, target: DragTarget, collapse: Boolean = true, fromTray: Block? = null): BoardState {
+    val engineItem = item.item
+    return when {
+        target is DragTarget.Place && fromTray != null -> board.insert(fromTray, target.drop, collapse)
+        target is DragTarget.Place && engineItem != null -> board.move(engineItem, target.drop, collapse)
+        item is DragItem.Marker && target is DragTarget.MarkerAt -> board.moveMarker(item.id, target.beforeSlot, collapse)
+        // Leaving the board for the tray or the trash.
+        (target is DragTarget.Tray || target is DragTarget.Trash) && fromTray == null && engineItem != null ->
+            board.extract(engineItem, collapse).first
+        else -> board
+    }
 }

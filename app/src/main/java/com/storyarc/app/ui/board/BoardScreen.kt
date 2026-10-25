@@ -1,6 +1,19 @@
 package com.storyarc.app.ui.board
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -82,9 +95,45 @@ fun BoardScreen(
     var selection by rememberSaveable { mutableStateOf<List<String>?>(null) }
     var namingGroup by rememberSaveable { mutableStateOf(false) }
     var filtering by rememberSaveable { mutableStateOf(false) }
+    // A new node from the add button: edited in a panel with its card floating above, then
+    // floating over the board until dragged somewhere.
+    var floatingId by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingFloating by rememberSaveable { mutableStateOf(false) }
+    var trayExpanded by rememberSaveable { mutableStateOf(true) }
     val views by repo.projects.observeViews(projectId).collectAsStateWithLifecycle(emptyList())
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    fun notify(message: String, undoable: Boolean) {
+        scope.launch {
+            snackbar.currentSnackbarData?.dismiss()
+            val result = snackbar.showSnackbar(message, actionLabel = if (undoable) "Undo" else null, duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) vm.undo()
+        }
+    }
+    // The floating node is gone (undone, deleted, or placed from elsewhere). It counts as gone
+    // only once the board has shown it, since the board reloads after the node is created.
+    var floatingSeen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(ui, floatingId) {
+        val u = ui ?: return@LaunchedEffect
+        val id = floatingId ?: return@LaunchedEffect
+        val present = u.tray.any { it.root == null && id in it.nodes }
+        if (present) floatingSeen = true
+        else if (floatingSeen) { floatingId = null; editingFloating = false; floatingSeen = false }
+    }
+    // While the blank check runs, the node is neither edited nor drawn floating.
+    var finishing by remember { mutableStateOf(false) }
+    fun finishFloating() {
+        val id = floatingId ?: return
+        editingFloating = false
+        finishing = true
+        vm.finishNewNode(id) { discarded ->
+            finishing = false
+            if (discarded && floatingId == id) floatingId = null
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             val sel = selection
             if (sel != null) {
@@ -140,18 +189,11 @@ fun BoardScreen(
                 },
             )
         },
-        floatingActionButton = {
-            val current = ui
-            if (current != null && current.timelines.isNotEmpty() && selection == null) {
-                FloatingActionButton(onClick = {
-                    val t = current.timelines.first().id
-                    vm.addNode(Drop.Onto(t, current.board.slotCount)) { editingNode = it }
-                }) { Icon(Icons.Default.Add, "Add node") }
-            }
-        },
     ) { padding ->
         val current = ui
-        Box(Modifier.fillMaxSize().padding(padding)) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
+            // The tray takes the bottom edge in portrait and the right edge in landscape.
+            val traySide = maxWidth > maxHeight
             when {
                 current == null -> {}
                 current.timelines.isEmpty() -> Column(
@@ -166,19 +208,35 @@ fun BoardScreen(
                     current,
                     viewport,
                     barrier = BarrierConfig(settings.barrierDelayEnabled, settings.barrierDelayMs),
-                    onDrop = { item, target ->
-                        when {
-                            item is DragItem.Node && target is DragTarget.Place -> vm.move(Item.Node(item.id), target.drop)
-                            item is DragItem.Group && target is DragTarget.Place -> vm.move(Item.GroupItem(item.id), target.drop)
-                            item is DragItem.Marker && target is DragTarget.MarkerAt -> vm.moveMarker(item.id, target.beforeSlot)
+                    onDrop = { item, target, fromTray ->
+                        val engineItem = item.item
+                        when (target) {
+                            is DragTarget.Place -> engineItem?.let { if (fromTray) vm.placeFromTray(it, target.drop) else vm.move(it, target.drop) }
+                            is DragTarget.MarkerAt -> if (item is DragItem.Marker) vm.moveMarker(item.id, target.beforeSlot)
+                            is DragTarget.Tray -> engineItem?.let { vm.moveToTray(it, target.index) }
+                            DragTarget.Trash -> {
+                                when (item) {
+                                    is DragItem.Node -> vm.deleteNodeEverywhere(item.id)
+                                    is DragItem.Group -> vm.deleteGroupWithNodes(item.id)
+                                    is DragItem.Marker -> vm.removeMarker(item.id)
+                                }
+                                notify("Deleted", undoable = true)
+                            }
+                            DragTarget.None -> {}
                         }
+                        if (target != DragTarget.None && item is DragItem.Node && item.id == floatingId) floatingId = null
                     },
                     selected = selection.orEmpty().toSet(),
                     vertical = settings.verticalBoard,
+                    traySide = traySide,
+                    trayExpanded = trayExpanded,
+                    floating = floatingId.takeIf { !editingFloating && !finishing },
+                    trayHidden = setOfNotNull(floatingId),
                     onTap = { hit ->
                         val sel = selection
                         if (sel != null) {
-                            if (hit is BoardHit.Node) selection = if (hit.nodeId in sel) sel - hit.nodeId else sel + hit.nodeId
+                            if (hit is BoardHit.Node && current.isPlaced(hit.nodeId)) selection = if (hit.nodeId in sel) sel - hit.nodeId else sel + hit.nodeId
+                            if (hit == BoardHit.TrayToggle) trayExpanded = !trayExpanded
                             return@BoardCanvas
                         }
                         when (hit) {
@@ -187,9 +245,32 @@ fun BoardScreen(
                             is BoardHit.Empty -> vm.addNode(Drop.Onto(hit.timelineId, hit.slot)) { editingNode = it }
                             is BoardHit.Timeline -> onTimelines()
                             is BoardHit.Group -> editingGroup = hit.groupId
+                            is BoardHit.Floating -> editingFloating = true
+                            BoardHit.TrayToggle -> trayExpanded = !trayExpanded
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+            if (current != null && current.timelines.isNotEmpty() && selection == null && !editingFloating) {
+                val tray = TrayDims.thickness(traySide, trayExpanded)
+                FloatingActionButton(
+                    onClick = {
+                        vm.addNodeToTray { id -> floatingId = id; floatingSeen = false; editingFloating = true }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp + if (traySide) tray else 0.dp, bottom = 16.dp + if (traySide) 0.dp else tray),
+                ) { Icon(Icons.Default.Add, "Add node") }
+            }
+            val editing = floatingId
+            if (current != null && editing != null && editingFloating && current.nodes[editing] != null) {
+                BackHandler { finishFloating() }
+                FloatingEditor(
+                    vm, current, editing, maxHeight,
+                    onDone = { finishFloating() },
+                    onOpenNote = { finishFloating(); onOpenNote(it) },
+                    modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
         }
@@ -206,6 +287,7 @@ fun BoardScreen(
                 onDismiss = { editingNode = null },
                 onSelect = { editingNode = null; selection = listOf(it) },
                 onOpenNote = { editingNode = null; onOpenNote(it) },
+                onCopied = { notify("Copied to the tray", undoable = false) },
             )
         }
     }
@@ -229,7 +311,12 @@ fun BoardScreen(
         if (group == null) {
             LaunchedEffect(id) { editingGroup = null }
         } else {
-            GroupSheet(vm, current, group.id, onDismiss = { editingGroup = null }, onOpenNote = { editingGroup = null; onOpenNote(it) })
+            GroupSheet(
+                vm, current, group.id,
+                onDismiss = { editingGroup = null },
+                onOpenNote = { editingGroup = null; onOpenNote(it) },
+                onCopied = { notify("Copied to the tray", undoable = false) },
+            )
         }
     }
     if (filtering && current != null) {
@@ -240,6 +327,64 @@ fun BoardScreen(
             addingMarker = false
             // Insert before the first slot visible at the left edge of the board.
             vm.addMarker(label, viewport.firstVisibleSlot)
+        }
+    }
+}
+
+/**
+ * Editor for a new node: a panel along the bottom with the node's card floating above it.
+ * When done, the card stays floating over the board until dragged.
+ */
+@Composable
+private fun FloatingEditor(
+    vm: BoardViewModel,
+    ui: BoardUi,
+    nodeId: String,
+    maxHeight: Dp,
+    onDone: () -> Unit,
+    onOpenNote: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val node = ui.nodes[nodeId] ?: return
+    // The card shows what has been typed, ahead of the saved text.
+    var typed by remember(nodeId) { mutableStateOf<String?>(null) }
+    Column(modifier.fillMaxWidth().imePadding()) {
+        NodeCard(
+            typed?.let { node.copy(text = it) } ?: node,
+            color = ui.nodeColor(nodeId),
+            tags = ui.nodeTags[nodeId].orEmpty().mapNotNull { ui.tags[it] },
+            lifted = true,
+            modifier = Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(bottom = 12.dp)
+                .size(BoardDims.slot(false), BoardDims.row(false))
+                .padding(BoardDims.cardPadding),
+        )
+        Surface(
+            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+            tonalElevation = 2.dp,
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                Modifier
+                    .heightIn(max = maxHeight * 0.6f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("New node", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(top = 8.dp))
+                    TextButton(onClick = onDone) { Text("Done") }
+                }
+                NodeFields(vm, nodeId, ui, onOpenNote, autoFocus = true, onTextChange = { typed = it })
+                Text(
+                    "When you're done, drag the card onto the board or into the tray.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

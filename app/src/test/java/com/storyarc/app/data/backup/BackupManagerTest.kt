@@ -40,7 +40,7 @@ class BackupManagerTest {
     private val tables = listOf(
         "project", "world", "project_world", "board_view", "timeline", "view_timeline", "node", "node_group",
         "placement", "marker", "category", "note", "note_link", "tag", "node_tag", "marker_tag", "group_tag",
-        "note_tag", "view_hidden_tag",
+        "note_tag", "view_hidden_tag", "tray_item",
     )
 
     private fun snapshot(): Map<String, List<String>> = tables.associateWith { t ->
@@ -78,6 +78,9 @@ class BackupManagerTest {
         repo.setTags(p, TagTarget.Note(n2), listOf(pov))
         repo.setTagHidden(v, pov, true)
         repo.createView(p, "Second", from = v, import = StoryRepository.ViewImport.TIMELINES_AND_NODES)
+        // Tray content: a loose node and a copied group (tray groups have no timeline).
+        repo.setTags(p, TagTarget.Node(repo.addNodeToTray(v, "Loose")), listOf(pov))
+        repo.copyGroup(v, g)
         return p
     }
 
@@ -126,6 +129,35 @@ class BackupManagerTest {
         // The copy's nodes still carry the shared world tag and its own copied project tag.
         assertEquals(db.backup().nodeTags(p).size, db.backup().nodeTags(copy.id).size)
         assertEquals(0, fkProblems())
+    }
+
+    /** Format 1 backups have no tray rows; they still restore. */
+    @Test
+    fun readsFormatOneBackups() = runBlocking {
+        val p = repo.createProject("Old")
+        val v = repo.projects.views(p).single().id
+        repo.addNode(v, "x", Drop.Onto(repo.addTimeline(v, "A"), 0))
+        val before = snapshot()
+        val entries = LinkedHashMap<String, String>()
+        java.util.zip.ZipInputStream(ByteArrayInputStream(exported())).use { z ->
+            while (true) { val e = z.nextEntry ?: break; entries[e.name] = z.readBytes().decodeToString() }
+        }
+        val json = kotlinx.serialization.json.Json
+        val old = entries.mapValues { (name, text) ->
+            val obj = json.parseToJsonElement(text) as kotlinx.serialization.json.JsonObject
+            val stripped = when {
+                name == "manifest.json" -> obj + ("formatVersion" to kotlinx.serialization.json.JsonPrimitive(1))
+                name.startsWith("projects/") -> obj - "tray"
+                else -> obj
+            }
+            kotlinx.serialization.json.JsonObject(stripped).toString()
+        }
+        val bytes = ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { z -> old.forEach { (n, t) -> z.putNextEntry(java.util.zip.ZipEntry(n)); z.write(t.toByteArray()); z.closeEntry() } }
+        }.toByteArray()
+        for (t in tables.reversed()) db.openHelper.writableDatabase.execSQL("DELETE FROM $t")
+        backups.import(backups.read(ByteArrayInputStream(bytes)), ImportMode.REPLACE)
+        assertEquals(before, snapshot())
     }
 
     @Test

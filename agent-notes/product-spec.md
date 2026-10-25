@@ -49,7 +49,11 @@ Confirmed product requirements for StoryArc, an Android app for planning creativ
 - **Drop onto a node:** pushes that timeline's nodes forward only, cascading into empty slots.
 - **Push reaching a marker:** inserts a new slot immediately before the marker (across all timelines) rather than pushing past it.
 - **Crossing a marker:** a dragged item stops at the barrier and crosses only after a ~0.5 s dwell, confirmed with a haptic tick. A setting disables the delay, letting items cross freely.
-- **Delete:** deleting a node in a view removes it from that view only; a separate "delete everywhere" action removes the shared node from all views.
+- **Add button:** opens the editor for a new, unplaced node straight away. Its card floats above the editor; after "Done" it floats over the board until dragged onto the board, into the tray or onto the trash (no long press needed for it). A new node left blank (no text, tags or color) is discarded without an undo entry. Tapping an empty cell still creates a node in that cell.
+- **Tray:** each view has a tray of nodes and groups that are on no timeline there. It runs along the bottom in portrait and the right edge in landscape, and collapses. Drag items between the board and the tray; groups keep their shape and nesting. A node is in a view either on the board or in its tray, never both. The tray is not copied when a view is created by import.
+- **Copy:** nodes and groups can be copied (text, color, tags; for groups also nested groups, labels and spacing). Copies are independent nodes and go to the end of the tray.
+- **Trash:** while anything is being dragged, a trash target appears at the tray's far end. Dropping on it deletes: a node everywhere, a group with all its nodes everywhere, a marker. No confirmation; a "Deleted · Undo" snackbar follows.
+- **Delete / remove:** a board node's editor offers "Move to tray" and "Delete everywhere". A tray node's editor offers "Remove from view" only when another view also holds it.
 - **Undo/redo:** required in the base version, covering all structural edits (moves, pushes, inserts, collapses, deletes).
 
 ## Tags and color

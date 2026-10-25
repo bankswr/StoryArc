@@ -26,7 +26,9 @@ import com.storyarc.app.data.db.upsertAny
 import com.storyarc.app.domain.undo.Change
 import com.storyarc.app.domain.undo.ChangeSet
 import com.storyarc.app.domain.undo.UndoManager
+import com.storyarc.board.Block
 import com.storyarc.board.BoardState
+import com.storyarc.board.extract
 import com.storyarc.board.Drop
 import com.storyarc.board.Item
 import com.storyarc.board.addMarker
@@ -37,7 +39,6 @@ import com.storyarc.board.move
 import com.storyarc.board.moveMarker
 import com.storyarc.board.moveTimeline
 import com.storyarc.board.removeMarker
-import com.storyarc.board.removeNode
 import com.storyarc.board.removeTimeline
 import com.storyarc.board.ungroup
 import kotlinx.coroutines.sync.Mutex
@@ -126,10 +127,31 @@ class StoryRepository(
     private suspend fun projectOf(viewId: String) = requireNotNull(projects.view(viewId)) { "unknown view $viewId" }.projectId
 
     /**
-     * Runs a board operation on a view and records the resulting row changes plus [extra]
-     * changes (content rows created or removed alongside). Tag rows of markers and groups the
-     * operation deletes are removed too.
+     * Runs a layout operation (board and tray) on a view and records the resulting row changes
+     * plus [extra] changes (content rows created or removed alongside). Tag rows of markers and
+     * groups the operation deletes are removed too.
      */
+    private suspend fun layoutEdit(
+        viewId: String,
+        label: String,
+        extra: List<Change> = emptyList(),
+        newMarkers: List<MarkerEntity> = emptyList(),
+        newGroups: List<NodeGroupEntity> = emptyList(),
+        op: (Layout) -> Layout,
+    ) {
+        val before = ViewRows.load(board, viewId)
+        val after = before.withLayout(op(before.toLayout()), newMarkers, newGroups)
+        perform(projectOf(viewId), ChangeSet(label, extra + layoutChanges(before, after)))
+    }
+
+    /** Row changes from [before] to [after], plus tag rows of markers and groups that went away. */
+    private suspend fun layoutChanges(before: ViewRows, after: ViewRows): List<Change> {
+        val goneMarkers = before.markers.map { it.id } - after.markers.map { it.id }.toSet()
+        val goneGroups = before.groups.map { it.id } - after.groups.map { it.id }.toSet()
+        val tagDeletes = (board.markerTags(goneMarkers) + board.groupTags(goneGroups)).map { Change(it, null) }
+        return before.diffTo(after) + tagDeletes
+    }
+
     private suspend fun boardEdit(
         viewId: String,
         label: String,
@@ -137,14 +159,7 @@ class StoryRepository(
         newMarkers: List<MarkerEntity> = emptyList(),
         newGroups: List<NodeGroupEntity> = emptyList(),
         op: (BoardState) -> BoardState,
-    ) {
-        val before = ViewRows.load(board, viewId)
-        val after = before.withBoard(op(before.toBoard()), newMarkers, newGroups)
-        val goneMarkers = before.markers.map { it.id } - after.markers.map { it.id }.toSet()
-        val goneGroups = before.groups.map { it.id } - after.groups.map { it.id }.toSet()
-        val tagDeletes = (board.markerTags(goneMarkers) + board.groupTags(goneGroups)).map { Change(it, null) }
-        perform(projectOf(viewId), ChangeSet(label, extra + before.diffTo(after) + tagDeletes))
-    }
+    ) = layoutEdit(viewId, label, extra, newMarkers, newGroups) { it.copy(board = op(it.board)) }
 
     suspend fun addTimeline(viewId: String, name: String, index: Int? = null): String = lock.withLock {
         val t = TimelineEntity(newId(), projectOf(viewId), name)
@@ -176,9 +191,9 @@ class StoryRepository(
         boardEdit(viewId, "Remove timeline", extra) { it.removeTimeline(timelineId) }
     }
 
-    /** Deletes of a node and its tags if [viewId] holds its only placement. */
+    /** Deletes of a node and its tags if [viewId] is the only view holding it (placed or in the tray). */
     private suspend fun orphanDeletes(nodeId: String, viewId: String): List<Change> {
-        if (board.placementsOfNode(nodeId).any { it.viewId != viewId }) return emptyList()
+        if (board.viewsOfNode(nodeId).any { it != viewId }) return emptyList()
         return board.nodeTags(nodeId).map { Change(it, null) } + Change(requireNotNull(projects.node(nodeId)), null)
     }
 
@@ -194,30 +209,116 @@ class StoryRepository(
         perform(old.projectId, ChangeSet("Edit node", listOf(Change(old, old.copy(text = text)))), "node:$nodeId")
     }
 
-    /** True if removing the node from [viewId] would delete it everywhere. */
-    suspend fun isLastPlacement(viewId: String, nodeId: String): Boolean =
-        board.placementsOfNode(nodeId).all { it.viewId == viewId }
+    /** Creates an empty-texted node at the end of [viewId]'s tray. */
+    suspend fun addNodeToTray(viewId: String, text: String = ""): String = lock.withLock {
+        val node = NodeEntity(newId(), projectOf(viewId), text)
+        layoutEdit(viewId, "Add node", extra = listOf(Change(null, node))) { it.append(Block(mapOf(node.id to 0))) }
+        node.id
+    }
 
+    /**
+     * Withdraws a node that was just added: if creating it is the latest undo step, that step
+     * is reverted without a trace; otherwise the node is deleted normally.
+     */
+    suspend fun discardNewNode(viewId: String, nodeId: String) = lock.withLock { discard(viewId, nodeId) }
+
+    /**
+     * Discards a just-added node if it has no text, tags or color; returns whether it did. Runs
+     * after edits already requested, so a quick "type, then done" keeps the text.
+     */
+    suspend fun discardNewNodeIfBlank(viewId: String, nodeId: String): Boolean = lock.withLock {
+        val node = projects.node(nodeId) ?: return@withLock true
+        if (node.text.isNotBlank() || node.color != null || board.nodeTags(nodeId).isNotEmpty()) return@withLock false
+        discard(viewId, nodeId)
+        true
+    }
+
+    private suspend fun discard(viewId: String, nodeId: String) {
+        val retracted = undoManager(projectOf(viewId)).retract { cs ->
+            cs.changes.any { it.before == null && (it.after as? NodeEntity)?.id == nodeId }
+        }
+        if (!retracted) deleteNodes(setOf(nodeId), "Delete node")
+    }
+
+    /** True if [viewId] is the only view holding the node, so removing it there deletes it. */
+    suspend fun isLastPlacement(viewId: String, nodeId: String): Boolean =
+        board.viewsOfNode(nodeId).all { it == viewId }
+
+    /** Takes a node out of the view entirely (board or tray), deleting it if no other view holds it. */
     suspend fun removeNodeFromView(viewId: String, nodeId: String) = lock.withLock {
-        boardEdit(viewId, "Remove node", orphanDeletes(nodeId, viewId)) { it.removeNode(nodeId) }
+        layoutEdit(viewId, "Remove node", orphanDeletes(nodeId, viewId)) { it.without(setOf(nodeId)) }
+    }
+
+    /** Moves a node or group from the board into the tray, or reorders it within the tray. */
+    suspend fun moveToTray(viewId: String, item: Item, index: Int? = null) = lock.withLock {
+        layoutEdit(viewId, "Move to tray") { it.toTray(item, index) }
+    }
+
+    /** Places a tray item (a node, or a group by its top group) on the board. */
+    suspend fun placeFromTray(viewId: String, item: Item, drop: Drop) = lock.withLock {
+        layoutEdit(viewId, "Place") { it.place(item, drop) }
     }
 
     /** Deletes a node from every view. */
-    suspend fun deleteNodeEverywhere(nodeId: String) = lock.withLock {
-        val node = requireNotNull(projects.node(nodeId))
-        val placements = board.placementsOfNode(nodeId)
+    suspend fun deleteNodeEverywhere(nodeId: String) = lock.withLock { deleteNodes(setOf(nodeId), "Delete node") }
+
+    /** Deletes a group and every node in it, from every view. */
+    suspend fun deleteGroupWithNodes(viewId: String, groupId: String) = lock.withLock {
+        val layout = ViewRows.load(board, viewId).toLayout()
+        val nodes = if (groupId in layout.board.groups) layout.board.nodesOf(groupId)
+        else requireNotNull(layout.tray.blockWithGroup(groupId)) { "unknown group $groupId" }.part(groupId).nodes.keys
+        deleteNodes(nodes.toSet(), "Delete group")
+    }
+
+    private suspend fun deleteNodes(nodeIds: Set<String>, label: String) {
+        val nodes = nodeIds.map { requireNotNull(projects.node(it)) { "unknown node $it" } }
         val changes = buildList {
-            for (p in placements) {
-                val before = ViewRows.load(board, p.viewId)
-                val after = before.withBoard(before.toBoard().removeNode(nodeId))
-                addAll(before.diffTo(after))
-                val gone = before.groups.map { it.id } - after.groups.map { it.id }.toSet()
-                addAll(board.groupTags(gone).map { Change(it, null) })
+            for (v in nodeIds.flatMap { board.viewsOfNode(it) }.distinct()) {
+                val before = ViewRows.load(board, v)
+                addAll(layoutChanges(before, before.withLayout(before.toLayout().without(nodeIds))))
             }
-            addAll(board.nodeTags(nodeId).map { Change(it, null) })
-            add(Change(node, null))
+            nodeIds.forEach { n -> addAll(board.nodeTags(n).map { Change(it, null) }) }
+            nodes.forEach { add(Change(it, null)) }
         }
-        perform(node.projectId, ChangeSet("Delete node", changes))
+        perform(nodes.first().projectId, ChangeSet(label, changes))
+    }
+
+    /** Copies a node (text, color, tags) as a new, independent node at the end of the tray. */
+    suspend fun copyNode(viewId: String, nodeId: String): String = lock.withLock {
+        val src = requireNotNull(projects.node(nodeId))
+        val copy = src.copy(id = newId())
+        val extra = listOf(Change(null, copy)) + board.nodeTags(nodeId).map { Change(null, it.copy(targetId = copy.id)) }
+        layoutEdit(viewId, "Copy node", extra) { it.append(Block(mapOf(copy.id to 0))) }
+        copy.id
+    }
+
+    /**
+     * Copies a group with all its nodes and nested groups (labels, colors, tags, spacing) to the
+     * end of the tray. Returns the new top group's id.
+     */
+    suspend fun copyGroup(viewId: String, groupId: String): String = lock.withLock {
+        val rows = ViewRows.load(board, viewId)
+        val layout = rows.toLayout()
+        val src = if (groupId in layout.board.groups) layout.board.extract(Item.GroupItem(groupId)).second
+        else requireNotNull(layout.tray.blockWithGroup(groupId)) { "unknown group $groupId" }.part(groupId)
+        val nodeIds = src.nodes.keys.associateWith { newId() }
+        val groupIds = src.groups.keys.associateWith { newId() }
+        val block = Block(
+            src.nodes.entries.associate { (n, off) -> nodeIds.getValue(n) to off },
+            src.groups.entries.associate { (g, parent) -> groupIds.getValue(g) to parent?.let(groupIds::getValue) },
+            src.membership.entries.associate { (n, g) -> nodeIds.getValue(n) to groupIds.getValue(g) },
+        )
+        val groupRows = rows.groups.associateBy { it.id }
+        val newGroups = groupIds.map { (old, new) -> groupRows.getValue(old).copy(id = new, timelineId = null) }
+        val extra = buildList {
+            nodeIds.forEach { (old, new) ->
+                add(Change(null, requireNotNull(projects.node(old)).copy(id = new)))
+                board.nodeTags(old).forEach { add(Change(null, it.copy(targetId = new))) }
+            }
+            board.groupTags(groupIds.keys.toList()).forEach { add(Change(null, it.copy(targetId = groupIds.getValue(it.targetId)))) }
+        }
+        layoutEdit(viewId, "Copy group", extra, newGroups = newGroups) { it.append(block) }
+        groupIds.getValue(groupId)
     }
 
     suspend fun move(viewId: String, item: Item, drop: Drop) = lock.withLock {
@@ -275,7 +376,9 @@ class StoryRepository(
             val rows = buildList<Any> {
                 add(view)
                 if (from != null && import != ViewImport.NOTHING) {
-                    val src = ViewRows.load(board, from)
+                    // The tray is not imported; only what is on the board.
+                    val all = ViewRows.load(board, from)
+                    val src = all.copy(groups = all.groups.filter { it.timelineId != null })
                     src.timelines.forEach { add(it.copy(viewId = view.id)) }
                     if (import == ViewImport.TIMELINES_AND_NODES) {
                         val groupIds = src.groups.associate { it.id to newId() }
@@ -310,6 +413,10 @@ class StoryRepository(
             rows.placements.forEach { p ->
                 add(Change(p, null))
                 addAll(orphanDeletes(p.nodeId, viewId))
+            }
+            rows.tray.forEach { t ->
+                add(Change(t, null))
+                addAll(orphanDeletes(t.nodeId, viewId))
             }
             rows.timelines.forEach { vt ->
                 add(Change(vt, null))

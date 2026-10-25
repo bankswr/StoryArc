@@ -37,7 +37,7 @@ class StoryRepositoryTest {
 
     private val tables = listOf(
         "project", "world", "project_world", "board_view", "timeline", "view_timeline", "node", "node_group",
-        "placement", "marker", "tag", "node_tag", "marker_tag", "group_tag",
+        "placement", "marker", "tag", "node_tag", "marker_tag", "group_tag", "tray_item",
     )
 
     /** Every row of every table, rendered, for whole-database comparisons. */
@@ -154,7 +154,8 @@ class StoryRepositoryTest {
                 val board = ViewRows.load(repo.board, v).toBoard()
                 val t = board.timelines.random(rnd)
                 val drop = if (rnd.nextBoolean()) Drop.Between(t, rnd.nextInt(board.slotCount + 1)) else Drop.Onto(t, rnd.nextInt(board.slotCount + 1))
-                when (rnd.nextInt(8)) {
+                val tray = ViewRows.load(repo.board, v).toTray()
+                when (rnd.nextInt(12)) {
                     0, 1 -> repo.addNode(v, "n", drop)
                     2 -> placements.randomOrNull(rnd)?.let { repo.move(v, Item.Node(it.nodeId), drop) } ?: return@repeat
                     3 -> repo.addMarker(v, "m", rnd.nextInt(board.slotCount + 1))
@@ -166,13 +167,30 @@ class StoryRepositoryTest {
                         if (board.groupingProblem(run) != null) return@repeat
                         repo.createGroup(v, run)
                     }
-                    6 -> repo.board.groups(v).randomOrNull(rnd)?.let {
+                    6 -> repo.board.groups(v).filter { it.timelineId != null }.randomOrNull(rnd)?.let {
                         if (rnd.nextBoolean()) repo.ungroup(v, it.id) else repo.move(v, Item.GroupItem(it.id), drop)
                     } ?: return@repeat
                     7 -> repo.moveTimeline(v, tls.random(rnd), rnd.nextInt(2))
+                    8 -> {
+                        val item = repo.board.groups(v).filter { it.timelineId != null }.randomOrNull(rnd)?.takeIf { rnd.nextBoolean() }
+                            ?.let { Item.GroupItem(it.id) } ?: placements.randomOrNull(rnd)?.let { Item.Node(it.nodeId) } ?: return@repeat
+                        repo.moveToTray(v, item, rnd.nextInt(tray.size + 1))
+                    }
+                    9 -> tray.randomOrNull(rnd)?.let { repo.placeFromTray(v, it.item, drop) } ?: return@repeat
+                    10 -> when {
+                        rnd.nextBoolean() -> placements.randomOrNull(rnd)?.let { repo.copyNode(v, it.nodeId) } ?: return@repeat
+                        else -> repo.board.groups(v).randomOrNull(rnd)?.let { repo.copyGroup(v, it.id) } ?: return@repeat
+                    }
+                    11 -> when {
+                        rnd.nextBoolean() -> repo.board.groups(v).randomOrNull(rnd)?.let { repo.deleteGroupWithNodes(v, it.id) } ?: return@repeat
+                        else -> repo.addNodeToTray(v, "t")
+                    }
                 }
                 assertEquals("seed $seed", 0, foreignKeyProblems())
                 assertEquals(emptyList<String>(), ViewRows.load(repo.board, v).toBoard().violations())
+                // Every node in the view is on the board or in the tray, never both.
+                val rows = ViewRows.load(repo.board, v)
+                assertTrue(rows.placements.map { it.nodeId }.intersect(rows.tray.map { it.nodeId }.toSet()).isEmpty())
             }
             while (repo.undoManager(p).state.value.canUndo) repo.undo(p)
             assertEquals("seed $seed", start, snapshot())
