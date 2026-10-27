@@ -39,3 +39,12 @@ How to build StoryArc on this machine, and the toolchain constraints behind the 
 
 - APKs are named `storyarc-<variant>.apk` (`base.archivesName` in `app/build.gradle.kts`).
 - Every `assemble<Variant>` is finalized by `copy<Variant>ApkToLatestRelease`, which copies the APK into `latest-release/` at the repo root. That folder is gitignored and always holds the most recent build of each variant.
+
+## Release signing
+
+Set up 2026-10-27.
+
+- Keystore: `~/keystores/storyarc-release.jks` (PKCS12, alias `storyarc`, RSA 4096, valid ~27 years). It is not in the repo. Losing it means updates can't install over existing installs.
+- The passwords and path live in `~/.gradle/gradle.properties` as `STORYARC_KEYSTORE`, `STORYARC_KEYSTORE_PASSWORD`, `STORYARC_KEY_ALIAS` and `STORYARC_KEY_PASSWORD`. `app/build.gradle.kts` signs release builds only when `STORYARC_KEYSTORE` is set. Without it, `assembleRelease` still works but produces `storyarc-release-unsigned.apk`.
+- `./gradlew assembleRelease` → `storyarc-release.apk` (copied to `latest-release/`). Check it with `apksigner verify --print-certs`. Use one specific `build-tools/<ver>/apksigner`, because several build-tools versions are installed.
+- Certificate SHA-256: `5b:c3:40:05:39:70:4f:08:97:52:ab:2f:78:cb:82:14:15:40:c9:89:56:82:cc:6c:4d:74:de:5f:2c:ff:4b:a1`.

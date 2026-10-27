@@ -18,8 +18,20 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing reads STORYARC_* from ~/.gradle/gradle.properties; without them, release stays unsigned.
+    val keystore = providers.gradleProperty("STORYARC_KEYSTORE").orNull
+    signingConfigs {
+        if (keystore != null) create("release") {
+            storeFile = file(keystore)
+            storePassword = providers.gradleProperty("STORYARC_KEYSTORE_PASSWORD").get()
+            keyAlias = providers.gradleProperty("STORYARC_KEY_ALIAS").get()
+            keyPassword = providers.gradleProperty("STORYARC_KEY_PASSWORD").get()
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

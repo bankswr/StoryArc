@@ -7,7 +7,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    version = 2,
+    version = StoryDatabase.SCHEMA_VERSION,
     exportSchema = true,
     // 2: tray_item table; node_group.timelineId nullable (tray groups).
     autoMigrations = [AutoMigration(from = 1, to = 2)],
@@ -28,6 +28,8 @@ abstract class StoryDatabase : RoomDatabase() {
     abstract fun backup(): BackupDao
 
     companion object {
+        const val SCHEMA_VERSION = 2
+
         fun create(context: Context): StoryDatabase =
             Room.databaseBuilder(context, StoryDatabase::class.java, "storyarc.db").build()
     }

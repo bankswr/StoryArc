@@ -3,6 +3,8 @@ package com.storyarc.app.ui.settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +29,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.storyarc.app.BuildConfig
+import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.app.ui.common.appContainer
 import com.storyarc.app.ui.common.rememberBackupExporter
 import com.storyarc.app.ui.common.rememberRestore
@@ -53,7 +57,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
         },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
             SectionHeader("Board")
             ListItem(
                 headlineContent = { Text("Layout") },
@@ -105,6 +109,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                 headlineContent = { Text("Restore from backup") },
                 supportingContent = { Text("Projects can also be backed up one at a time from the project list") },
                 modifier = Modifier.clickable { restore() },
+            )
+            SectionHeader("About")
+            ListItem(
+                headlineContent = { Text("App version") },
+                supportingContent = { Text("${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") },
+            )
+            ListItem(
+                headlineContent = { Text("Database schema") },
+                supportingContent = { Text("Version ${StoryDatabase.SCHEMA_VERSION}") },
             )
         }
     }

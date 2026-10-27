@@ -18,6 +18,7 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 | M11 | TalkBack move actions on cards and markers; a non-collapsing drag preview, so columns don't shift under the finger; a large-board performance test (~1 ms per move at 2,000 nodes). |
 | After M11 | Horizontal/vertical board layout setting (`VerticalBoardTest`). |
 | After M11 | Per-view tray, floating new-node editor, copy of nodes and groups, drag-to-trash (`TrayTest`, `TrayBoardTest`, `TrayGeometryTest`, `MigrationTest`). DB schema v2, backup format 2 (format 1 still restores). |
+| After M11 | Release signing (see [build-environment.md](build-environment.md)); Settings → About shows app version and DB schema version. |
 | After M11 | Timeline headers: tap to edit, drag to reorder / tray / trash, + to add. Tray sort (manual, A–Z, by primary tag) and filter (tag, search) — `TrayView.kt`, `TrayViewTest`. |
 
 ## How it's verified
@@ -29,11 +30,10 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 ## Not yet verified
 
 - **No real device:** nothing has run on a physical device or emulator yet. Gesture feel, haptics, long-press timing, edge auto-scroll speed, IME behaviour in sheets and SAF file pickers have only been exercised under Robolectric (or not at all, for the file pickers).
-- Release builds are unsigned. There is no signing config.
 
 ## Known limitations and likely next steps
 
-- **Schema:** Room schema is at version 1 with no migrations. Any entity change needs a migration and, if fields change, a `BackupManager.FORMAT_VERSION` bump with conversion.
+- **Schema:** Room schema is at version 2 (`StoryDatabase.SCHEMA_VERSION`, shown under Settings → About), with an auto-migration from 1. Any entity change needs a migration and, if fields change, a `BackupManager.FORMAT_VERSION` bump with conversion.
 - **Undo:** history is in memory per project and lost when the process dies.
 - **Drag preview:** columns inserted by the preview still shift content to the right of the finger. Only the source column is held in place.
 - **Group bars:** they are grabbed in a 16dp strip at the bottom of each row. This may be a small touch target on a real phone.
