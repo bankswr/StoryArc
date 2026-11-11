@@ -53,7 +53,7 @@ class BoardScreenshotTest {
         val mara = repo.addTimeline(v, "Mara")
         val joss = repo.addTimeline(v, "Joss")
         val phase = repo.addTimeline(v, "Act")
-        repo.addNode(v, "Act I: Departure", Drop.Onto(phase, 0))
+        val act = repo.addNode(v, "Act I: Departure", Drop.Onto(phase, 0))
         val leaves = repo.addNode(v, "Leaves the harbour at dawn", Drop.Onto(mara, 0))
         val storm = repo.addNode(v, "Storm; ship runs aground", Drop.Onto(mara, 1))
         repo.createGroup(v, listOf(leaves, storm), "Voyage")
@@ -65,6 +65,8 @@ class BoardScreenshotTest {
         repo.addNode(v, "Waits at the inn", Drop.Onto(joss, 0))
         repo.addNode(v, "", Drop.Onto(joss, 2))
         repo.addMarker(v, "Day 2", 2)
+        // Act I spans both columns before the marker.
+        repo.resize(v, act, 2)
         repo.addNode(v, "Reunion", Drop.Onto(mara, 3))
         repo.addNode(v, "Reunion", Drop.Onto(joss, 3))
         repo.addNodeToTray(v, "Unplaced idea: the lighthouse keeper")

@@ -110,6 +110,8 @@ class BoardViewModel(
 
     fun move(item: Item, drop: Drop) = launch { move(viewId, item, drop) }
 
+    fun resize(nodeId: String, span: Int) = launch { resize(viewId, nodeId, span) }
+
     /** Creates an empty node in the tray and reports its id. */
     fun addNodeToTray(onCreated: (String) -> Unit) = launch { onCreated(addNodeToTray(viewId)) }
 

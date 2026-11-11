@@ -22,6 +22,7 @@ suspend fun RowDao.upsertAny(row: Any) = when (row) {
     is NoteTagEntity -> upsert(row)
     is ViewHiddenTagEntity -> upsert(row)
     is TrayEntity -> upsert(row)
+    is SceneTextEntity -> upsert(row)
     else -> error("not an entity: ${row::class}")
 }
 
@@ -46,6 +47,7 @@ suspend fun RowDao.deleteAny(row: Any) = when (row) {
     is NoteTagEntity -> delete(row)
     is ViewHiddenTagEntity -> delete(row)
     is TrayEntity -> delete(row)
+    is SceneTextEntity -> delete(row)
     else -> error("not an entity: ${row::class}")
 }
 
@@ -71,5 +73,6 @@ fun rowKey(row: Any): Any = when (row) {
     is NoteTagEntity -> Triple("note_tag", row.targetId, row.tagId)
     is ViewHiddenTagEntity -> Triple("view_hidden_tag", row.viewId, row.tagId)
     is TrayEntity -> Triple("tray_item", row.viewId, row.nodeId)
+    is SceneTextEntity -> "scene_text" to row.nodeId
     else -> error("not an entity: ${row::class}")
 }

@@ -212,6 +212,7 @@ fun BoardScreen(
                         when (target) {
                             is DragTarget.Place -> engineItem?.let { if (fromTray) vm.placeFromTray(it, target.drop) else vm.move(it, target.drop) }
                             is DragTarget.MarkerAt -> if (item is DragItem.Marker) vm.moveMarker(item.id, target.beforeSlot)
+                            is DragTarget.Span -> if (item is DragItem.Node) vm.resize(item.id, target.span)
                             is DragTarget.TimelineAt -> if (item is DragItem.Timeline) vm.moveTimeline(item.id, target.index)
                             is DragTarget.Tray -> when {
                                 item is DragItem.Timeline -> vm.moveTimelineToTray(item.id)

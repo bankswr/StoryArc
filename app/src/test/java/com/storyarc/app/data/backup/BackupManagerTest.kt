@@ -40,7 +40,7 @@ class BackupManagerTest {
     private val tables = listOf(
         "project", "world", "project_world", "board_view", "timeline", "view_timeline", "node", "node_group",
         "placement", "marker", "category", "note", "note_link", "tag", "node_tag", "marker_tag", "group_tag",
-        "note_tag", "view_hidden_tag", "tray_item",
+        "note_tag", "view_hidden_tag", "tray_item", "scene_text",
     )
 
     private fun snapshot(): Map<String, List<String>> = tables.associateWith { t ->
@@ -63,6 +63,7 @@ class BackupManagerTest {
         val a = repo.addNode(v, "Leaves", Drop.Onto(t, 0))
         val b = repo.addNode(v, "Storm", Drop.Onto(t, 1))
         val g = repo.createGroup(v, listOf(a, b), "Voyage")
+        repo.resize(v, b, 2)
         val m = repo.addMarker(v, "Day 2", 1)
         val w = repo.createWorld(p, "Lore")
         val cat = repo.createCategory(p, w, "Magic")
@@ -152,6 +153,46 @@ class BackupManagerTest {
             }
             kotlinx.serialization.json.JsonObject(stripped).toString()
         }
+        val bytes = ByteArrayOutputStream().also { out ->
+            java.util.zip.ZipOutputStream(out).use { z -> old.forEach { (n, t) -> z.putNextEntry(java.util.zip.ZipEntry(n)); z.write(t.toByteArray()); z.closeEntry() } }
+        }.toByteArray()
+        for (t in tables.reversed()) db.openHelper.writableDatabase.execSQL("DELETE FROM $t")
+        backups.import(backups.read(ByteArrayInputStream(bytes)), ImportMode.REPLACE)
+        assertEquals(before, snapshot())
+    }
+
+    /** Format 2 backups have no spans, scenes flag or scene text; they still restore with defaults. */
+    @Test
+    fun readsFormatTwoBackups() = runBlocking {
+        val p = repo.createProject("Old")
+        val v = repo.projects.views(p).single().id
+        val t = repo.addTimeline(v, "A")
+        repo.addNode(v, "x", Drop.Onto(t, 0))
+        repo.addNodeToTray(v, "y")
+        val before = snapshot()
+        val entries = LinkedHashMap<String, String>()
+        java.util.zip.ZipInputStream(ByteArrayInputStream(exported())).use { z ->
+            while (true) { val e = z.nextEntry ?: break; entries[e.name] = z.readBytes().decodeToString() }
+        }
+        val json = kotlinx.serialization.json.Json
+        fun stripArray(obj: kotlinx.serialization.json.JsonObject, key: String, field: String) =
+            obj + (key to kotlinx.serialization.json.JsonArray((obj.getValue(key) as kotlinx.serialization.json.JsonArray).map {
+                kotlinx.serialization.json.JsonObject((it as kotlinx.serialization.json.JsonObject) - field)
+            }))
+        val old = entries.mapValues { (name, text) ->
+            var obj = json.parseToJsonElement(text) as kotlinx.serialization.json.JsonObject
+            when {
+                name == "manifest.json" -> obj = kotlinx.serialization.json.JsonObject(obj + ("formatVersion" to kotlinx.serialization.json.JsonPrimitive(2)))
+                name.startsWith("projects/") -> {
+                    obj = kotlinx.serialization.json.JsonObject(obj - "sceneTexts")
+                    obj = kotlinx.serialization.json.JsonObject(stripArray(obj, "placements", "span"))
+                    obj = kotlinx.serialization.json.JsonObject(stripArray(obj, "tray", "span"))
+                    obj = kotlinx.serialization.json.JsonObject(stripArray(obj, "timelines", "isScenes"))
+                }
+            }
+            obj.toString()
+        }
+        assertTrue(old.values.none { "span" in it || "isScenes" in it || "sceneTexts" in it })
         val bytes = ByteArrayOutputStream().also { out ->
             java.util.zip.ZipOutputStream(out).use { z -> old.forEach { (n, t) -> z.putNextEntry(java.util.zip.ZipEntry(n)); z.write(t.toByteArray()); z.closeEntry() } }
         }.toByteArray()

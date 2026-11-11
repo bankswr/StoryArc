@@ -50,4 +50,6 @@ interface RowDao {
     @Delete suspend fun delete(row: ViewHiddenTagEntity)
     @Upsert suspend fun upsert(row: TrayEntity)
     @Delete suspend fun delete(row: TrayEntity)
+    @Upsert suspend fun upsert(row: SceneTextEntity)
+    @Delete suspend fun delete(row: SceneTextEntity)
 }

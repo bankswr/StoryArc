@@ -15,6 +15,7 @@ import com.storyarc.app.data.db.NoteTagEntity
 import com.storyarc.app.data.db.PlacementEntity
 import com.storyarc.app.data.db.ProjectEntity
 import com.storyarc.app.data.db.ProjectWorldEntity
+import com.storyarc.app.data.db.SceneTextEntity
 import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.app.data.db.TagEntity
 import com.storyarc.app.data.db.TrayEntity
@@ -65,9 +66,11 @@ data class ProjectBundle(
     val hiddenTags: List<ViewHiddenTagEntity>,
     /** Added in format 2; absent (empty) in format 1 backups. */
     val tray: List<TrayEntity> = emptyList(),
+    /** Added in format 3; absent (empty) in older backups. */
+    val sceneTexts: List<SceneTextEntity> = emptyList(),
 ) {
     fun rows(): List<Any> = listOf(project) + worldLinks + views + timelines + viewTimelines + nodes + groups +
-        placements + markers + tags + nodeTags + markerTags + groupTags + hiddenTags + tray
+        placements + markers + tags + nodeTags + markerTags + groupTags + hiddenTags + tray + sceneTexts
 }
 
 /** Every row owned by one world library. */
@@ -113,7 +116,7 @@ class BackupManager(
     suspend fun projectBundle(p: String) = ProjectBundle(
         requireNotNull(dao.project(p)), dao.projectWorlds(p), dao.views(p), dao.timelines(p), dao.viewTimelines(p),
         dao.nodes(p), dao.groups(p), dao.placements(p), dao.markers(p), dao.projectTags(p), dao.nodeTags(p),
-        dao.markerTags(p), dao.groupTags(p), dao.hiddenTags(p), dao.trays(p),
+        dao.markerTags(p), dao.groupTags(p), dao.hiddenTags(p), dao.trays(p), dao.sceneTexts(p),
     )
 
     suspend fun worldBundle(w: String) = WorldBundle(
@@ -248,11 +251,16 @@ class BackupManager(
             groupTags = b.groupTags.map { it.copy(targetId = m(it.targetId), tagId = mo(it.tagId)!!) },
             hiddenTags = b.hiddenTags.map { it.copy(viewId = m(it.viewId), tagId = mo(it.tagId)!!) },
             tray = b.tray.map { it.copy(viewId = m(it.viewId), nodeId = m(it.nodeId), groupId = mo(it.groupId)) },
+            sceneTexts = b.sceneTexts.map { it.copy(nodeId = m(it.nodeId)) },
         )
     }
 
     companion object {
-        /** 2: project bundles carry `tray` rows, and groups may have a null timeline (tray groups). */
-        const val FORMAT_VERSION = 2
+        /**
+         * 2: project bundles carry `tray` rows, and groups may have a null timeline (tray groups).
+         * 3: placement and tray rows carry `span`, timelines `isScenes`, and project bundles
+         * `sceneTexts`. Older files read with the defaults (span 1, no scenes timeline, no prose).
+         */
+        const val FORMAT_VERSION = 3
     }
 }

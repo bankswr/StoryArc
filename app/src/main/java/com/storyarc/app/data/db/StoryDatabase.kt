@@ -10,13 +10,15 @@ import androidx.room.RoomDatabase
     version = StoryDatabase.SCHEMA_VERSION,
     exportSchema = true,
     // 2: tray_item table; node_group.timelineId nullable (tray groups).
-    autoMigrations = [AutoMigration(from = 1, to = 2)],
+    // 3: placement.span, tray_item.span, timeline.isScenes, scene_text table.
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
     entities = [
         ProjectEntity::class, WorldEntity::class, ProjectWorldEntity::class, ViewEntity::class,
         TimelineEntity::class, ViewTimelineEntity::class, NodeEntity::class, NodeGroupEntity::class,
         PlacementEntity::class, MarkerEntity::class, CategoryEntity::class, NoteEntity::class,
         NoteLinkEntity::class, TagEntity::class, NodeTagEntity::class, MarkerTagEntity::class,
         GroupTagEntity::class, NoteTagEntity::class, ViewHiddenTagEntity::class, TrayEntity::class,
+        SceneTextEntity::class,
     ],
 )
 abstract class StoryDatabase : RoomDatabase() {
@@ -28,7 +30,7 @@ abstract class StoryDatabase : RoomDatabase() {
     abstract fun backup(): BackupDao
 
     companion object {
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
 
         fun create(context: Context): StoryDatabase =
             Room.databaseBuilder(context, StoryDatabase::class.java, "storyarc.db").build()

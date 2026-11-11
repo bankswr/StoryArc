@@ -197,6 +197,7 @@ Deferred (from the spec): rich node content, templates, search, Markdown/PDF exp
 Planned 2026-11-11 for the "Manuscript authoring" and "Spanning nodes" sections of [product-spec.md](product-spec.md). Status: approved 2026-11-11 (all four milestones). Each milestone ends with a buildable APK, passing `./gradlew test`, and one commit.
 
 ### M12 — Spanning nodes and schema v3
+Done 2026-11-11. Rules as built (see the comment above `Drop` in `BoardOps.kt`): a drop onto any covered slot pushes the spanning node; a Between drop inside a span on its own timeline snaps to the nearer edge; columns inserted inside a span on another timeline widen it; a marker inserted inside a span cuts it short. The resize gesture reuses the drag session (`DragTarget.Span`), so it needs no long press and gets auto-scroll.
 - **Goal:** nodes can stretch over several slots. The data for later milestones is in place.
 - **Engine (`:board`):**
   - A placement gets `span ≥ 1`, and a node occupies `slot..slot+span-1`.

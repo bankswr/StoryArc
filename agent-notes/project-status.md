@@ -20,6 +20,7 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 | After M11 | Per-view tray, floating new-node editor, copy of nodes and groups, drag-to-trash (`TrayTest`, `TrayBoardTest`, `TrayGeometryTest`, `MigrationTest`). DB schema v2, backup format 2 (format 1 still restores). |
 | After M11 | Release signing (see [build-environment.md](build-environment.md)); Settings → About shows app version and DB schema version. |
 | After M11 | Timeline headers: tap to edit, drag to reorder / tray / trash, + to add. Tray sort (manual, A–Z, by primary tag) and filter (tag, search) — `TrayView.kt`, `TrayViewTest`. |
+| M12 (2026-11-11) | Spanning nodes: `BoardState.spans`, `resize`, drag handle on a card's trailing edge, Widen/Narrow TalkBack actions (`BoardSpanTest`, fuzz resizes, `BoardDragTest`). DB schema v3 (span columns, `timeline.isScenes`, `scene_text`), backup format 3 (formats 1–2 still restore). |
 
 ## How it's verified
 
@@ -34,7 +35,7 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 
 ## Known limitations and likely next steps
 
-- **Schema:** Room schema is at version 2 (`StoryDatabase.SCHEMA_VERSION`, shown under Settings → About), with an auto-migration from 1. Any entity change needs a migration and, if fields change, a `BackupManager.FORMAT_VERSION` bump with conversion.
+- **Schema:** Room schema is at version 3 (`StoryDatabase.SCHEMA_VERSION`, shown under Settings → About), with auto-migrations 1→2→3. Any entity change needs a migration and, if fields change, a `BackupManager.FORMAT_VERSION` bump with conversion.
 - **Undo:** history is in memory per project and lost when the process dies.
 - **Drag preview:** columns inserted by the preview still shift content to the right of the finger. Only the source column is held in place.
 - **Group bars:** they are grabbed in a 16dp strip at the bottom of each row. This may be a small touch target on a real phone.

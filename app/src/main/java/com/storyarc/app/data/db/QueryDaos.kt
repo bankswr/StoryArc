@@ -284,6 +284,9 @@ interface BackupDao {
     @Query("SELECT nt.* FROM note_tag nt JOIN note n ON n.id = nt.targetId WHERE n.worldId = :w")
     suspend fun noteTags(w: String): List<NoteTagEntity>
 
+    @Query("SELECT s.* FROM scene_text s JOIN node n ON n.id = s.nodeId WHERE n.projectId = :p")
+    suspend fun sceneTexts(p: String): List<SceneTextEntity>
+
     @Query("SELECT id FROM tag") suspend fun allTagIds(): List<String>
     @Query("SELECT id FROM note") suspend fun allNoteIds(): List<String>
 }

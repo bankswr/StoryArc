@@ -1,5 +1,6 @@
 package com.storyarc.app.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.ForeignKey.Companion.CASCADE
@@ -68,6 +69,8 @@ data class TimelineEntity(
     val projectId: String,
     val name: String,
     val color: Int? = null,
+    /** The project's scenes timeline (at most one per project; the repository enforces it). */
+    @ColumnInfo(defaultValue = "0") val isScenes: Boolean = false,
 )
 
 @Serializable
@@ -115,7 +118,10 @@ data class NodeGroupEntity(
     val color: Int? = null,
 )
 
-/** A node's position in one view. [groupId] is the node's innermost group, if any. */
+/**
+ * A node's position in one view. [groupId] is the node's innermost group, if any; [span] is
+ * how many slots the node covers, starting at [slot].
+ */
 @Serializable
 @Entity(
     tableName = "placement",
@@ -134,6 +140,7 @@ data class PlacementEntity(
     val timelineId: String,
     val slot: Int,
     val groupId: String?,
+    @ColumnInfo(defaultValue = "1") val span: Int = 1,
 )
 
 /**
@@ -158,6 +165,22 @@ data class TrayEntity(
     val ordinal: Int,
     val offset: Int = 0,
     val groupId: String? = null,
+    @ColumnInfo(defaultValue = "1") val span: Int = 1,
+)
+
+/**
+ * Manuscript prose of a scene node. [styles] is a JSON list of bold/italic ranges over [body]
+ * (see `StyledText`). Kept apart from [NodeEntity] so loading a board never loads prose.
+ */
+@Serializable
+@Entity(
+    tableName = "scene_text",
+    foreignKeys = [ForeignKey(NodeEntity::class, ["id"], ["nodeId"], onDelete = CASCADE, deferred = true)],
+)
+data class SceneTextEntity(
+    @PrimaryKey val nodeId: String,
+    val body: String,
+    @ColumnInfo(defaultValue = "'[]'") val styles: String = "[]",
 )
 
 @Serializable

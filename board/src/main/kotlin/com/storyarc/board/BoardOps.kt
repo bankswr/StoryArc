@@ -17,6 +17,12 @@ sealed interface Drop {
     data class Onto(override val timelineId: String, val slot: Int) : Drop
 }
 
+// Spans and drops: a drop onto any slot a spanning node covers counts as a drop onto that node
+// (the item lands at the node's first slot and pushes it). A Between drop inside a span on the
+// target timeline snaps to the span's nearer edge. Columns inserted inside a span on another
+// timeline widen that span, so it keeps covering the same nodes elsewhere; a marker inserted
+// inside a span cuts the span short in front of the marker.
+
 /** Something that can be picked up and moved along or across timelines. */
 sealed interface Item {
     data class Node(val id: String) : Item
@@ -54,6 +60,28 @@ fun BoardState.removeNode(nodeId: String): BoardState = edit {
 }
 
 /**
+ * Sets how many slots [nodeId] covers. Growing pushes the following nodes on its timeline (empty
+ * slots absorb the push, as with a drop); it stops in front of a marker, so the result can be
+ * narrower than asked. Shrinking frees slots, which collapse if they are empty everywhere.
+ */
+fun BoardState.resize(nodeId: String, span: Int, collapse: Boolean = true): BoardState {
+    val c = requireNotNull(placements[nodeId]) { "unknown node $nodeId" }
+    val old = spanOf(nodeId)
+    val barrier = markers.values.filter { it > c.slot }.minOrNull()
+    val target = span.coerceAtLeast(1).let { if (barrier != null) it.coerceAtMost(barrier - c.slot) else it }
+    if (target == old) return this
+    return edit(collapse) {
+        if (target > old) {
+            spans.remove(nodeId)
+            placements.remove(nodeId)
+            pushFrom(c.timelineId, c.slot + old, target - old)
+            placements[nodeId] = c
+        }
+        spans[nodeId] = target
+    }
+}
+
+/**
  * Moves a node or group. With [collapse] false the result keeps slots that became empty
  * (it then breaks the density invariant); that form is only for previews, where the
  * dragged item's old column should stay put until the drop.
@@ -72,7 +100,7 @@ fun BoardState.move(item: Item, drop: Drop, collapse: Boolean = true): BoardStat
         }
     }
     val first = block.minOf { it.second }
-    val width = block.maxOf { it.second } - first + 1
+    val width = block.maxOf { it.second + spanOf(it.first) } - first
     block.forEach { placements.remove(it.first) }
     land(block.map { it.first to it.second - first }, width, drop, item)
 }
@@ -81,8 +109,10 @@ fun BoardState.move(item: Item, drop: Drop, collapse: Boolean = true): BoardStat
 fun BoardState.addMarker(markerId: String, beforeSlot: Int): BoardState {
     require(markerId !in markers) { "marker $markerId already present" }
     return edit {
-        insertColumns(beforeSlot.coerceIn(0, slotCount), 1)
-        markers[markerId] = beforeSlot.coerceIn(0, slotCount)
+        val at = beforeSlot.coerceIn(0, slotCount)
+        insertColumns(at, 1)
+        markers[markerId] = at
+        cutSpansAt(at)
     }
 }
 
@@ -94,6 +124,7 @@ fun BoardState.moveMarker(markerId: String, beforeSlot: Int, collapse: Boolean =
         markers.remove(markerId)
         insertColumns(at, 1)
         markers[markerId] = at
+        cutSpansAt(at)
     }
 }
 
@@ -145,6 +176,8 @@ data class Block(
     val nodes: Map<String, Int>,
     val groups: Map<String, String?> = emptyMap(),
     val membership: Map<String, String> = emptyMap(),
+    /** Slots each node covers, for nodes covering more than one. */
+    val spans: Map<String, Int> = emptyMap(),
 ) {
     init {
         require(nodes.isNotEmpty()) { "a block holds at least one node" }
@@ -154,7 +187,9 @@ data class Block(
     /** The block's top group, or null for a single ungrouped node. */
     val root: String? get() = groups.entries.firstOrNull { it.value == null }?.key
 
-    val width: Int get() = nodes.values.max() + 1
+    val width: Int get() = nodes.maxOf { (id, off) -> off + spanOf(id) }
+
+    fun spanOf(nodeId: String): Int = spans[nodeId] ?: 1
 
     /** The item this block moves as on a board. */
     val item: Item get() = root?.let { Item.GroupItem(it) } ?: Item.Node(nodes.keys.single())
@@ -172,6 +207,7 @@ data class Block(
             inside.mapValues { it.value - first },
             subgroups.associateWith { if (it == groupId) null else groups[it] },
             membership.filterKeys { it in inside },
+            spans.filterKeys { it in inside },
         )
     }
 
@@ -182,7 +218,7 @@ data class Block(
         val first = left.values.min()
         val members = membership.filterKeys { it in left }
         val live = members.values.flatMap { g -> generateSequence(g) { groups[it] }.toList() }.toSet()
-        return Block(left.mapValues { it.value - first }, groups.filterKeys { it in live }, members)
+        return Block(left.mapValues { it.value - first }, groups.filterKeys { it in live }, members, spans.filterKeys { it in left })
     }
 }
 
@@ -195,7 +231,7 @@ fun BoardState.extract(item: Item, collapse: Boolean = true): Pair<BoardState, B
     val block = when (item) {
         is Item.Node -> {
             requireNotNull(placements[item.id]) { "unknown node ${item.id}" }
-            Block(mapOf(item.id to 0))
+            Block(mapOf(item.id to 0), spans = spans.filterKeys { it == item.id })
         }
         is Item.GroupItem -> {
             requireNotNull(groups[item.id]) { "unknown group ${item.id}" }
@@ -206,6 +242,7 @@ fun BoardState.extract(item: Item, collapse: Boolean = true): Pair<BoardState, B
                 members.associateWith { placements.getValue(it).slot - first },
                 inside.associateWith { if (it == item.id) null else groups.getValue(it).parentId },
                 members.associateWith { membership.getValue(it) },
+                spans.filterKeys { it in members },
             )
         }
     }
@@ -224,6 +261,7 @@ fun BoardState.insert(block: Block, drop: Drop, collapse: Boolean = true): Board
         require(drop.timelineId in timelines) { "unknown timeline ${drop.timelineId}" }
         block.groups.forEach { (id, parent) -> groups[id] = Group(id, drop.timelineId, parent) }
         membership.putAll(block.membership)
+        spans.putAll(block.spans)
         land(block.nodes.toList(), block.width, drop, block.item)
     }
 }
@@ -243,7 +281,7 @@ fun BoardState.ungroup(groupId: String): BoardState {
 }
 
 private inline fun BoardState.edit(collapse: Boolean = true, block: Work.() -> Unit): BoardState =
-    Work(this).apply(block).apply { pruneEmptyGroups(); if (collapse) collapse() }.snapshot()
+    Work(this).apply(block).apply { pruneEmptyGroups(); pruneSpans(); if (collapse) collapse() }.snapshot()
 
 /** Mutable working copy used to implement operations; always finished by prune + collapse. */
 private class Work(s: BoardState) {
@@ -252,19 +290,35 @@ private class Work(s: BoardState) {
     val markers = HashMap(s.markers)
     val groups = HashMap(s.groups)
     val membership = HashMap(s.membership)
+    val spans = HashMap(s.spans)
 
-    val slotCount get() = maxOf(placements.values.maxOfOrNull { it.slot } ?: -1, markers.values.maxOrNull() ?: -1) + 1
+    fun spanOf(id: String) = spans[id] ?: 1
 
-    fun snapshot() = BoardState(timelines.toList(), placements.toMap(), markers.toMap(), groups.toMap(), membership.toMap())
+    fun endOf(id: String) = placements.getValue(id).slot + spanOf(id) - 1
 
+    val slotCount get() = maxOf(placements.keys.maxOfOrNull { endOf(it) } ?: -1, markers.values.maxOrNull() ?: -1) + 1
+
+    fun snapshot() = BoardState(timelines.toList(), placements.toMap(), markers.toMap(), groups.toMap(), membership.toMap(), spans.toMap())
+
+    /** Shifts everything at or after [at] by [count]; spans straddling [at] widen instead. */
     fun insertColumns(at: Int, count: Int) {
+        placements.forEach { (id, c) -> if (c.slot < at && endOf(id) >= at) spans[id] = spanOf(id) + count }
         placements.replaceAll { _, c -> if (c.slot >= at) c.copy(slot = c.slot + count) else c }
         markers.replaceAll { _, m -> if (m >= at) m + count else m }
     }
 
+    /** Shortens spans covering marker slot [slot] so they end just before it. */
+    fun cutSpansAt(slot: Int) {
+        placements.forEach { (id, c) -> if (c.slot < slot && endOf(id) >= slot) spans[id] = slot - c.slot }
+    }
+
+    fun pruneSpans() {
+        spans.entries.removeAll { it.key !in placements || it.value <= 1 }
+    }
+
     /** Removes slots holding neither nodes nor a marker. */
     fun collapse() {
-        val used = (placements.values.map { it.slot } + markers.values).toSortedSet()
+        val used = (placements.flatMap { (id, c) -> c.slot..endOf(id) } + markers.values).toSortedSet()
         val remap = used.withIndex().associate { (i, s) -> s to i }
         placements.replaceAll { _, c -> c.copy(slot = remap.getValue(c.slot)) }
         markers.replaceAll { _, m -> remap.getValue(m) }
@@ -288,9 +342,17 @@ private class Work(s: BoardState) {
         require(drop.timelineId in timelines) { "unknown timeline ${drop.timelineId}" }
         val t = drop.timelineId
         val start: Int = when (drop) {
-            is Drop.Between -> drop.slot.coerceIn(0, slotCount).also { insertColumns(it, width) }
+            is Drop.Between -> {
+                var s = drop.slot.coerceIn(0, slotCount)
+                coveringOn(t, s)?.let { n ->
+                    val first = placements.getValue(n).slot
+                    if (first < s) s = if (s - first <= endOf(n) + 1 - s) first else endOf(n) + 1
+                }
+                s.also { insertColumns(it, width) }
+            }
             is Drop.Onto -> {
-                val s = drop.slot.coerceIn(0, slotCount)
+                var s = drop.slot.coerceIn(0, slotCount)
+                coveringOn(t, s)?.let { s = placements.getValue(it).slot }
                 if (s in markers.values) s.also { insertColumns(it, width) } else s.also { pushFrom(t, it, width) }
             }
         }
@@ -320,7 +382,7 @@ private class Work(s: BoardState) {
      * of the marker instead.
      */
     fun pushFrom(timeline: String, start: Int, width: Int) {
-        var end = start + width - 1
+        val end = start + width - 1
         markers.values.filter { it in start..end }.minOrNull()?.let { m -> insertColumns(m, end - m + 1) }
         var cursor = end + 1
         val followers = placements.entries.filter { it.value.timelineId == timeline && it.value.slot >= start }
@@ -328,10 +390,14 @@ private class Work(s: BoardState) {
         for (id in followers) {
             val old = placements.getValue(id).slot
             if (old >= cursor) break
-            end = cursor
-            markers.values.filter { it in (old + 1)..end }.minOrNull()?.let { m -> insertColumns(m, end - m + 1) }
-            placements[id] = Cell(timeline, end)
-            cursor = end + 1
+            val newEnd = cursor + spanOf(id) - 1
+            markers.values.filter { it in (old + 1)..newEnd }.minOrNull()?.let { m -> insertColumns(m, newEnd - m + 1) }
+            placements[id] = Cell(timeline, cursor)
+            cursor = newEnd + 1
         }
     }
+
+    /** The node covering [slot] on [timeline], or null. */
+    fun coveringOn(timeline: String, slot: Int): String? =
+        placements.entries.firstOrNull { (id, c) -> c.timelineId == timeline && slot in c.slot..endOf(id) }?.key
 }

@@ -36,10 +36,21 @@ class BoardFuzzTest {
             var next = 0
             repeat(150) { step ->
                 val before = b
-                val op = rnd.nextInt(100)
+                val op = rnd.nextInt(112)
                 val label: String
                 var stable: Collection<String> = emptyList()
                 when {
+                    op >= 100 && b.placements.isNotEmpty() -> {
+                        val id = b.placements.keys.random(rnd)
+                        val w = rnd.nextInt(1, 5)
+                        label = "resize $id to $w"
+                        val t = b.placements.getValue(id).timelineId
+                        stable = b.placements.filterValues { it.timelineId != t }.keys + b.markers.keys
+                        b = b.resize(id, w)
+                        val barrier = before.markers.values.filter { it > before.placements.getValue(id).slot }.minOrNull()
+                        if (barrier == null) assertEquals(w, b.spanOf(id), "seed $seed step $step $label")
+                        else assertTrue(b.spanOf(id) <= w, "seed $seed step $step $label")
+                    }
                     op < 25 || b.placements.isEmpty() -> {
                         val d = rnd.drop(b)
                         label = "add n$next $d"
@@ -146,6 +157,7 @@ class BoardFuzzTest {
             val rnd = Random(seed)
             var b = BoardState().addTimeline("A").addTimeline("B")
             repeat(12) { i -> b = b.addNode("n$i", Drop.Onto(b.timelines.random(rnd), rnd.nextInt(0, b.slotCount + 1))) }
+            repeat(3) { b = b.resize(b.placements.keys.random(rnd), rnd.nextInt(1, 4)) }
             b = b.addMarker("m", rnd.nextInt(0, b.slotCount + 1))
             val before = b.placements.mapValues { sign(it.value.slot, b.markers.getValue("m")) }
             val d = Drop.Onto(b.timelines.random(rnd), rnd.nextInt(0, b.slotCount))

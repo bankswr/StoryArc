@@ -14,7 +14,8 @@ data class Group(val id: String, val timelineId: String, val parentId: String?)
  *
  * Slots are implicit: they are the dense indices `0 until slotCount` used by placements and
  * markers. A marker owns its slot exclusively. [membership] maps a node to its innermost group;
- * ancestry follows [Group.parentId]. See [violations] for the full set of invariants.
+ * ancestry follows [Group.parentId]. A node covers [spans] slots (default 1) starting at its
+ * placement's slot; see [spanOf]. See [violations] for the full set of invariants.
  */
 data class BoardState(
     val timelines: List<String> = emptyList(),
@@ -22,15 +23,39 @@ data class BoardState(
     val markers: Map<String, Int> = emptyMap(),
     val groups: Map<String, Group> = emptyMap(),
     val membership: Map<String, String> = emptyMap(),
+    val spans: Map<String, Int> = emptyMap(),
 ) {
     val slotCount: Int by lazy {
-        maxOf(placements.values.maxOfOrNull { it.slot } ?: -1, markers.values.maxOrNull() ?: -1) + 1
+        maxOf(placements.entries.maxOfOrNull { (id, c) -> c.slot + spanOf(id) - 1 } ?: -1, markers.values.maxOrNull() ?: -1) + 1
     }
 
-    private val byCell: Map<Cell, String> by lazy { placements.entries.associate { (id, c) -> c to id } }
+    /** Number of slots node [nodeId] covers, starting at its placement's slot. */
+    fun spanOf(nodeId: String): Int = spans[nodeId] ?: 1
+
+    /** Last slot covered by placed node [nodeId]. */
+    fun endOf(nodeId: String): Int = placements.getValue(nodeId).slot + spanOf(nodeId) - 1
+
+    /** Every covered cell → its node; a spanning node appears once per covered slot. */
+    private val byCell: Map<Cell, String> by lazy {
+        buildMap { placements.forEach { (id, c) -> repeat(spanOf(id)) { put(c.copy(slot = c.slot + it), id) } } }
+    }
     private val byMarkerSlot: Map<Int, String> by lazy { markers.entries.associate { (id, s) -> s to id } }
 
+    /** The node covering [slot] on [timelineId] (which may start at an earlier slot), or null. */
     fun nodeAt(timelineId: String, slot: Int): String? = byCell[Cell(timelineId, slot)]
+
+    /**
+     * Nodes on other timelines whose covered slots overlap [nodeId]'s, ordered by timeline then
+     * slot. These are the items happening at the same time as [nodeId].
+     */
+    fun concurrentWith(nodeId: String): List<String> {
+        val c = placements[nodeId] ?: return emptyList()
+        val range = c.slot..endOf(nodeId)
+        return placements.entries
+            .filter { (id, o) -> o.timelineId != c.timelineId && o.slot <= range.last && endOf(id) >= range.first }
+            .sortedWith(compareBy({ timelines.indexOf(it.value.timelineId) }, { it.value.slot }))
+            .map { it.key }
+    }
 
     fun markerAt(slot: Int): String? = byMarkerSlot[slot]
 
@@ -61,12 +86,16 @@ data class BoardState(
             if (c.timelineId !in tlSet) add("node $id on unknown timeline ${c.timelineId}")
             if (c.slot < 0) add("node $id at negative slot")
         }
-        if (byCell.size != placements.size) add("two nodes share a cell")
+        spans.forEach { (id, w) ->
+            if (id !in placements) add("span for unplaced node $id")
+            if (w < 1) add("node $id has span $w")
+        }
+        if (byCell.size != placements.keys.sumOf { spanOf(it) }) add("two nodes share a cell")
         if (byMarkerSlot.size != markers.size) add("two markers share a slot")
         markers.forEach { (id, s) ->
-            if (placements.values.any { it.slot == s }) add("marker $id slot $s holds nodes")
+            if (byCell.keys.any { it.slot == s }) add("marker $id slot $s holds nodes")
         }
-        val used = placements.values.map { it.slot }.toSet() + markers.values
+        val used = byCell.keys.map { it.slot }.toSet() + markers.values
         for (s in 0 until slotCount) if (s !in used) add("slot $s is empty")
         membership.forEach { (n, g) ->
             if (n !in placements) add("membership for unplaced node $n")

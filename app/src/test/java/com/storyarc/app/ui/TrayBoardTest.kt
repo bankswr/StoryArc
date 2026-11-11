@@ -87,7 +87,9 @@ class TrayBoardTest {
         while (true) {
             try {
                 return check()
-            } catch (e: AssertionError) {
+            } catch (e: Throwable) {
+                // Lookups throw NoSuchElementException until a write lands, so retry those too.
+                if (e !is AssertionError && e !is NoSuchElementException) throw e
                 if (System.currentTimeMillis() > deadline) throw e
                 Thread.sleep(25)
                 compose.waitForIdle()

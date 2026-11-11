@@ -95,6 +95,11 @@ class BoardDragTest {
 
     private fun markerSlot() = runBlocking { repo.board.markers(view).single().slot }
 
+    private fun spanOf(text: String): Int = runBlocking {
+        val node = repo.board.nodesInView(view).single { it.text == text }
+        repo.board.placements(view).single { it.nodeId == node.id }.span
+    }
+
     /** Touch events in one performTouchInput are batched, so the long-press wait needs the clock advanced between calls. */
     private fun longPressAndMove(from: Offset, to: Offset) {
         compose.onRoot().performTouchInput { down(from) }
@@ -198,6 +203,64 @@ class BoardDragTest {
             val g = runBlocking { repo.board.groups(view) }.single()
             assertEquals("Joss", runBlocking { repo.projects.timeline(g.timelineId!!)!!.name })
         }
+    }
+
+    @Test
+    fun draggingTheTrailingEdgeStretchesANode() {
+        open()
+        val waits = centerOf("Waits")
+        val edge = Offset(waits.x + slotPx / 2 - 10f, waits.y)
+        // No long press: the handle drags straight away.
+        compose.onRoot().performTouchInput { down(edge) }
+        compose.onRoot().performTouchInput {
+            for (i in 1..12) {
+                moveTo(edge + Offset(slotPx * i / 12f, 0f))
+                advanceEventTime(16)
+            }
+        }
+        release()
+        eventually {
+            assertEquals(2, spanOf("Waits"))
+            assertEquals("Joss" to 0, slotOf("Waits"))
+        }
+    }
+
+    @Test
+    fun stretchingStopsAtAMarker() {
+        open()
+        val storm = centerOf("Storm")
+        val edge = Offset(storm.x + slotPx / 2 - 10f, storm.y)
+        compose.onRoot().performTouchInput { down(edge) }
+        compose.onRoot().performTouchInput {
+            for (i in 1..12) {
+                moveTo(edge + Offset(2 * slotPx * i / 12f, 0f))
+                advanceEventTime(16)
+            }
+        }
+        release()
+        Thread.sleep(200); compose.waitForIdle()
+        assertEquals(1, spanOf("Storm"))
+        assertEquals(2, markerSlot())
+    }
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test
+    fun accessibilityActionsWidenAndNarrow() {
+        open()
+        compose.onNode(hasText("Leaves")).performCustomAccessibilityActionWithLabel("Widen")
+        eventually {
+            assertEquals(2, spanOf("Leaves"))
+            // Storm is pushed into a slot inserted before the marker.
+            assertEquals("Mara" to 2, slotOf("Storm"))
+            assertEquals(3, markerSlot())
+        }
+        compose.waitUntil(5_000) {
+            compose.onAllNodes(hasText("Leaves")).fetchSemanticsNodes().any {
+                it.config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.StateDescription) { null }?.endsWith("spanning 2") == true
+            }
+        }
+        compose.onNode(hasText("Leaves")).performCustomAccessibilityActionWithLabel("Narrow")
+        eventually { assertEquals(1, spanOf("Leaves")) }
     }
 
     @OptIn(ExperimentalTestApi::class)

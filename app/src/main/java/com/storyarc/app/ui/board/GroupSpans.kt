@@ -8,7 +8,7 @@ data class GroupSpan(val groupId: String, val row: Int, val first: Int, val last
 fun groupSpans(board: BoardState): List<GroupSpan> {
     val members = HashMap<String, MutableList<Int>>()
     for ((nodeId, cell) in board.placements) {
-        for (g in board.groupChain(nodeId)) members.getOrPut(g) { ArrayList() } += cell.slot
+        for (g in board.groupChain(nodeId)) members.getOrPut(g) { ArrayList() }.apply { add(cell.slot); add(board.endOf(nodeId)) }
     }
     return board.groups.values.mapNotNull { g ->
         val slots = members[g.id] ?: return@mapNotNull null

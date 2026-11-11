@@ -197,6 +197,31 @@ class StoryRepositoryTest {
             repo.deleteProject(p)
         }
     }
+
+    @Test
+    fun resizeStretchesAndUndoRestores() = runBlocking {
+        val p = repo.createProject("Spans")
+        val v = repo.projects.views(p).single().id
+        val a = repo.addTimeline(v, "A")
+        val b = repo.addTimeline(v, "B")
+        val n = repo.addNode(v, "n", Drop.Onto(a, 0))
+        val m = repo.addNode(v, "m", Drop.Onto(a, 1))
+        repo.addNode(v, "x", Drop.Onto(b, 0))
+        val before = snapshot()
+        repo.resize(v, n, 2)
+        val rows = repo.board.placements(v).associateBy { it.nodeId }
+        assertEquals(2, rows.getValue(n).span)
+        assertEquals(2, rows.getValue(m).slot)
+        repo.undo(p)
+        assertEquals(before, snapshot())
+        repo.redo(p)
+        assertEquals(2, repo.board.placements(v).single { it.nodeId == n }.span)
+        // Moving to the tray and back keeps the span.
+        repo.moveToTray(v, Item.Node(n))
+        assertEquals(2, repo.board.tray(v).single().span)
+        repo.placeFromTray(v, Item.Node(n), Drop.Onto(b, 3))
+        assertEquals(2, repo.board.placements(v).single { it.nodeId == n }.span)
+    }
 }
 
 @RunWith(AndroidJUnit4::class)

@@ -40,6 +40,7 @@ import com.storyarc.board.moveMarker
 import com.storyarc.board.moveTimeline
 import com.storyarc.board.removeMarker
 import com.storyarc.board.removeTimeline
+import com.storyarc.board.resize
 import com.storyarc.board.ungroup
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -340,6 +341,7 @@ class StoryRepository(
             src.nodes.entries.associate { (n, off) -> nodeIds.getValue(n) to off },
             src.groups.entries.associate { (g, parent) -> groupIds.getValue(g) to parent?.let(groupIds::getValue) },
             src.membership.entries.associate { (n, g) -> nodeIds.getValue(n) to groupIds.getValue(g) },
+            src.spans.entries.associate { (n, w) -> nodeIds.getValue(n) to w },
         )
         val groupRows = rows.groups.associateBy { it.id }
         val newGroups = groupIds.map { (old, new) -> groupRows.getValue(old).copy(id = new, timelineId = null) }
@@ -356,6 +358,11 @@ class StoryRepository(
 
     suspend fun move(viewId: String, item: Item, drop: Drop) = lock.withLock {
         boardEdit(viewId, "Move") { it.move(item, drop) }
+    }
+
+    /** Sets how many slots [nodeId] covers on the board (see [com.storyarc.board.resize]). */
+    suspend fun resize(viewId: String, nodeId: String, span: Int) = lock.withLock {
+        boardEdit(viewId, "Resize") { it.resize(nodeId, span) }
     }
 
     suspend fun addMarker(viewId: String, label: String, beforeSlot: Int): String = lock.withLock {

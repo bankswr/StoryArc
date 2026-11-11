@@ -32,6 +32,7 @@ data class ViewRows(
         markers = markers.associate { it.id to it.slot },
         groups = groups.mapNotNull { g -> g.timelineId?.let { g.id to Group(g.id, it, g.parentId) } }.toMap(),
         membership = placements.mapNotNull { p -> p.groupId?.let { p.nodeId to it } }.toMap(),
+        spans = placements.filter { it.span > 1 }.associate { it.nodeId to it.span },
     )
 
     /** Tray items in order. A tray group belongs to the item whose nodes it contains. */
@@ -40,7 +41,10 @@ data class ViewRows(
         return tray.groupBy { it.ordinal }.toSortedMap().values.map { rows ->
             val membership = rows.mapNotNull { r -> r.groupId?.let { r.nodeId to it } }.toMap()
             val inside = membership.values.flatMap { g -> generateSequence(g) { parents[it] }.toList() }.toSet()
-            Block(rows.associate { it.nodeId to it.offset }, inside.associateWith { parents[it] }, membership)
+            Block(
+                rows.associate { it.nodeId to it.offset }, inside.associateWith { parents[it] }, membership,
+                rows.filter { it.span > 1 }.associate { it.nodeId to it.span },
+            )
         }
     }
 
@@ -61,10 +65,10 @@ data class ViewRows(
         val trayGroups = layout.tray.flatMap { b -> b.groups.map { (id, parent) -> groupRows.getValue(id).copy(timelineId = null, parentId = parent) } }
         return copy(
             timelines = board.timelines.mapIndexed { i, t -> ViewTimelineEntity(viewId, t, i) },
-            placements = board.placements.map { (n, c) -> PlacementEntity(viewId, n, c.timelineId, c.slot, board.membership[n]) },
+            placements = board.placements.map { (n, c) -> PlacementEntity(viewId, n, c.timelineId, c.slot, board.membership[n], board.spanOf(n)) },
             markers = board.markers.map { (id, s) -> markerRows.getValue(id).copy(slot = s) },
             groups = board.groups.values.map { g -> groupRows.getValue(g.id).copy(timelineId = g.timelineId, parentId = g.parentId) } + trayGroups,
-            tray = layout.tray.flatMapIndexed { i, b -> b.nodes.map { (n, off) -> TrayEntity(viewId, n, i, off, b.membership[n]) } },
+            tray = layout.tray.flatMapIndexed { i, b -> b.nodes.map { (n, off) -> TrayEntity(viewId, n, i, off, b.membership[n], b.spanOf(n)) } },
         )
     }
 

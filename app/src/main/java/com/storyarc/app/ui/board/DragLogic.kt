@@ -10,6 +10,7 @@ import com.storyarc.board.move
 import com.storyarc.board.moveMarker
 import com.storyarc.board.moveTimeline
 import com.storyarc.board.removeTimeline
+import com.storyarc.board.resize
 
 /** Something being dragged on the board. */
 sealed interface DragItem {
@@ -39,6 +40,9 @@ sealed interface DragTarget {
 
     /** Into the tray at insertion point [index] (0..size). */
     data class Tray(val index: Int) : DragTarget
+
+    /** A node stretched or shrunk to cover [span] slots (from its resize handle). */
+    data class Span(val span: Int) : DragTarget
 
     /** Delete the item. */
     data object Trash : DragTarget
@@ -97,6 +101,18 @@ fun resolveTarget(
     return Resolution(DragTarget.Place(clamped), barrier.key)
 }
 
+/**
+ * The span a node gets when its trailing edge is dragged to content-space [cx]: the edge snaps
+ * to the nearest column boundary, and the node keeps at least one slot.
+ */
+fun resizeSpan(board: BoardState, g: BoardGeometry, nodeId: String, cx: Float): Int {
+    val start = board.placements.getValue(nodeId).slot
+    val col = g.slotAt(cx)
+    val frac = (cx - g.x(col)) / g.width(col)
+    val edge = if (frac >= 0.5f) col + 1 else col
+    return (edge - start).coerceAtLeast(1)
+}
+
 private fun originSlot(board: BoardState, item: DragItem): Int? = when (item) {
     is DragItem.Node -> board.placements[item.id]?.slot
     is DragItem.Group -> board.nodesOf(item.id).firstOrNull()?.let { board.placements.getValue(it).slot }
@@ -114,6 +130,7 @@ fun preview(board: BoardState, item: DragItem, target: DragTarget, collapse: Boo
         target is DragTarget.Place && fromTray != null -> board.insert(fromTray, target.drop, collapse)
         target is DragTarget.Place && engineItem != null -> board.move(engineItem, target.drop, collapse)
         item is DragItem.Marker && target is DragTarget.MarkerAt -> board.moveMarker(item.id, target.beforeSlot, collapse)
+        item is DragItem.Node && target is DragTarget.Span && item.id in board.placements -> board.resize(item.id, target.span, collapse)
         item is DragItem.Timeline && target is DragTarget.TimelineAt -> board.moveTimeline(item.id, target.index)
         item is DragItem.Timeline && (target is DragTarget.Tray || target is DragTarget.Trash) -> board.removeTimeline(item.id)
         // Leaving the board for the tray or the trash.
