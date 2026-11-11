@@ -72,9 +72,35 @@ Confirmed product requirements for StoryArc, an Android app for planning creativ
 - Organized into user-defined categories; communal notes can link to each other.
 - Live in **world libraries**, which projects link to. Sharing is live: edits appear in every linked project.
 
+## Manuscript authoring
+
+Agreed with the user on 2026-11-11.
+
+- **Scenes timeline:** at most one per project, chosen from the timeline header. It is a property of the timeline, so it applies in every view.
+- **Scene nodes:** a node on the scenes timeline has a card name (the existing node text, edited and shown as today) and separate manuscript prose. Tapping it opens a full-screen scene editor instead of the node sheet. Scenes keep tags and color like any node.
+- **Scene editor:**
+  - **Fields:** card name, tags, color, and prose with **bold** and *italic*.
+  - **Saving and undo:** text saves automatically. The editor has its own undo and redo while open; closing it adds the session to board undo as one entry.
+  - **Stats:** word count, and page count at 250 words per page (adjustable in Settings).
+  - **Same time:** a panel lists every node on another timeline whose slots overlap the scene's, plus the nearest marker before it. Tapping an item opens it read-only.
+  - **World library:** a panel browses, searches and edits the project's linked notes. Notes linked from the scene's tags are listed first.
+- **On the board:** scene cards show their word count. The scenes timeline header shows the manuscript total in words and pages. A node off the scenes timeline keeps its prose, nothing is deleted, and its card shows a manuscript icon.
+- **Assemble:** a button on the scenes timeline header exports the manuscript as `.odt` through the system file picker.
+  - **Order:** scenes in the current view's slot order. Tray scenes are excluded.
+  - **Chapters:** each scene is one chapter, headed by its card name. An empty scene keeps its heading and has no body.
+  - **Title and file name:** the project name is the document title. The file is `<project name>_yyyy_mm_dd.odt`, with whitespace replaced by underscores.
+  - **Layout:** standard manuscript layout on the paper size chosen in Settings (Letter, A4 and common publishing trim sizes; "Automatic" picks Letter or A4 by region): 12 pt Times New Roman, double-spaced, first-line indents, each chapter on a new page.
+  - **Author option:** an export option, off by default, adds an author name. That gives a title page (name, title, word count) and a page header (surname / short title / page number). With it off, pages carry only page numbers.
+
+## Spanning nodes
+
+- A node can stretch along its timeline to cover several consecutive slots, per view. Drag a handle on the card's trailing edge; it snaps to slots and pushes later nodes like a drop does.
+- No other node can sit in a covered slot. Covered slots do not collapse. A span cannot cross a marker: the marker blocks it.
+- Spans apply to every timeline, not only scenes. "Same time" uses the overlap of spans.
+
 ## Platform and data
 
-- Android phone; portrait and landscape both supported. Tablet deferred.
+- Android phone; portrait and landscape both supported. Tablet-specific layouts are deferred, but as of 2026-11-11 the user runs the app on a tablet and reports it works well.
 - Layout: timelines are stacked horizontal rows; slots scroll left to right; markers render as vertical bars.
 - Kotlin + Jetpack Compose + Room. Minimum SDK 26 (Android 8.0).
 - Application ID: `com.storyarc.app`.
@@ -87,5 +113,5 @@ Confirmed product requirements for StoryArc, an Android app for planning creativ
 - Rich node content (formatting, images, structured fields).
 - Templates (communal notes, nodes).
 - Search.
-- Additional export formats (Markdown, PDF).
+- Additional export formats (Markdown, PDF). ODT export is covered under Manuscript authoring.
 - Tablet layouts.

@@ -192,6 +192,81 @@ Each milestone ends with a buildable debug APK and a commit.
 
 Deferred (from the spec): rich node content, templates, search, Markdown/PDF export, tablet layouts, persistent undo history.
 
+## Manuscript milestones (M12–M15)
+
+Planned 2026-11-11 for the "Manuscript authoring" and "Spanning nodes" sections of [product-spec.md](product-spec.md). Status: approved 2026-11-11 (all four milestones). Each milestone ends with a buildable APK, passing `./gradlew test`, and one commit.
+
+### M12 — Spanning nodes and schema v3
+- **Goal:** nodes can stretch over several slots. The data for later milestones is in place.
+- **Engine (`:board`):**
+  - A placement gets `span ≥ 1`, and a node occupies `slot..slot+span-1`.
+  - Invariants change: no two placements overlap on a timeline; a span never covers a marker slot; collapse treats covered slots as occupied.
+  - Push and move treat a node as width `span`, reusing the group-block width logic.
+  - New operation `resize(node, newSpan)`. Growing pushes later nodes on that timeline, using the same cascade as a drop. If a marker is reached, the span stops before it, so the barrier blocks it. Shrinking frees slots, which then collapse if empty everywhere.
+- **Schema v3** (Room `AutoMigration` 2→3, new columns with defaults):
+  - `Placement.span` and `TrayItem.span`, default 1;
+  - `Timeline.isScenes`, default false;
+  - new table `SceneText(nodeId PK → Node CASCADE, body, styles)`, kept separate so the board doesn't load prose.
+  - "At most one scenes timeline per project" is enforced by the repository: setting one clears the previous one in the same change set.
+- **Backup format 3:** adds the new fields and table. Format 1 and 2 files still restore, with defaults.
+- **UI:**
+  - A resize handle on the card's trailing edge. It works in both board layouts and shows a live preview while dragging.
+  - Cards are drawn across the full span.
+  - TalkBack actions "Widen" and "Narrow".
+- **Verification:**
+  - Engine unit tests for each new rule.
+  - `BoardFuzzTest` extended with random resizes.
+  - `MigrationTest` for 2→3, plus a backup round trip including format-2 import.
+  - A Robolectric gesture test for the handle and a screenshot of spanned cards.
+
+### M13 — Scenes timeline and scene editor
+- **Header:** the timeline header menu gets "Use as scenes timeline" and "Stop using as scenes timeline". The scenes header shows a manuscript icon and the total words and pages.
+- **Editor screen:** full screen, opened from a scene card, both in a view and from the tray. Contents:
+  - the card name field (same behaviour as today's node text), tags, color, and the prose field;
+  - autosave, debounced at about 500 ms and flushed on exit;
+  - an editor-local undo/redo stack. On close, the session is written to `UndoManager` as one `ChangeSet` (coalesced per editing session, as text edits already are).
+- **Stats bar:** words (Unicode-aware word split) and pages (`ceil(words / wordsPerPage)`). The new `Settings.wordsPerPage` defaults to 250.
+- **Same-time panel:** lists nodes on other timelines in the current view whose `[slot, slot+span)` overlaps the scene's, plus the nearest marker at or before the scene's slot. Tapping an item opens a read-only preview.
+- **World library panel:**
+  - Shows notes from the project's linked worlds: tag-linked notes first, then search by title and body. Notes are editable in place, through the existing note repository calls.
+  - On wide screens (≥ 840 dp, e.g. the user's tablet in landscape) it is a side pane; otherwise a bottom sheet.
+- **Cards:** scene cards show a word-count badge. Cards with prose that aren't on the scenes timeline show a manuscript icon.
+- **Prose text:** plain text in this milestone. `SceneText.styles` stays an empty JSON list until M15.
+- **Verification:**
+  - Repository tests: designation exclusivity, prose saving, and undo of a whole editing session.
+  - Unit tests for word count and overlap.
+  - A Compose flow test: open a scene, type, check the stats, close, undo.
+
+### M14 — Assemble and ODT export
+- **Button and dialog:** an "Assemble" button on the scenes timeline header opens the export dialog. It has an author option (off by default) and an author name field, remembered in DataStore. Then `ACTION_CREATE_DOCUMENT` opens with the suggested file name `<project>_yyyy_mm_dd.odt`, whitespace → `_`, and characters invalid in file names removed.
+- **Assembler:** a pure Kotlin function from (project, view, scenes with prose and styles, options) to a document model. It reads scenes in slot order and skips tray scenes. Each scene becomes a chapter with its card name as the heading (first line if the name has several lines); an empty body still gets its heading.
+- **ODT writer:** written by hand on `java.util.zip`, with no new dependency.
+  - Files: `mimetype` (stored uncompressed, first entry), `META-INF/manifest.xml`, `content.xml`, `styles.xml`, and `meta.xml` with the word count.
+  - Layout: page size from `Settings.paperSize` (below), 1 in margins (0.75 in on trim sizes narrower than 8 in), Times New Roman 12 pt, double spacing, 0.5 in first-line indent, chapter headings on a new page about one third down, page numbers in the header.
+  - With the author option on: a title page (author, title, approximate word count) and the header "Surname / TITLE / page".
+- **Verification:**
+  - Unit tests unzip the output and check entry order, that `mimetype` is stored uncompressed, that the XML is well formed, the chapter order, and the file-name sanitizing.
+  - An ODT generated from a fixture is converted to PDF with the local LibreOffice (`soffice --headless --convert-to pdf`) as a manual check. The user then confirms the result on the tablet.
+
+### M15 — Bold and italic
+- **Style model:** `styles` is a JSON list of `(start, end, bold|italic)` ranges over `body`. A pure Kotlin `StyledText` keeps ranges consistent through inserts and deletes: a range grows when text is typed at its end while that style is active, and ranges merge and split as text changes. It is fully unit-tested.
+- **Editor:**
+  - The view uses `BasicTextField` on `TextFieldState`; styles are applied through an `OutputTransformation` or annotated rendering. This choice is made at implementation time after a spike, and the result recorded in agent-notes.
+  - A toolbar with B and I toggles that apply to the selection, or set the style for the next text typed.
+  - Ctrl+B and Ctrl+I for hardware keyboards.
+- **Export:** styled ranges become `text:span` elements with bold and italic automatic styles.
+- **Verification:** `StyledText` unit and fuzz tests (random edits keep ranges valid); editor tests for toggling and typing; an ODT test checking the spans.
+- **Sizing:** comparable to M14. It is the riskiest milestone because Compose has no built-in rich-text editing, and it comes last so it can be dropped or deferred without affecting the others.
+
+- **Paper size setting:** `Settings.paperSize`. "Automatic" (the default) uses Letter in the US and Canada and A4 elsewhere. The other options are:
+  - manuscript sizes: US Letter, A4;
+  - common publishing trim sizes: 5×8 in, 5.25×8 in, 5.5×8.5 in (Digest), 6×9 in (US Trade), 6.14×9.21 in (Royal), 7×10 in, A5, B-format (129×198 mm), Demy (138×216 mm), Royal UK (156×234 mm).
+
+  The word count per page is a separate setting, so page counts don't depend on the trim size.
+
+### Open questions
+- None.
+
 ## Decisions made in this plan (not explicit in the spec)
 
 - Slots are implicit dense indices, not stored rows.

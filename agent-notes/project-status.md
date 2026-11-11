@@ -29,7 +29,8 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 
 ## Not yet verified
 
-- **No real device:** nothing has run on a physical device or emulator yet. Gesture feel, haptics, long-press timing, edge auto-scroll speed, IME behaviour in sheets and SAF file pickers have only been exercised under Robolectric (or not at all, for the file pickers).
+- **Real device:** as of 2026-11-11, the user has been running the app on a tablet and reports it works well. Phone-size screens and the details below have not been specifically checked.
+- **Previously (before 2026-11-11):** nothing had run on a physical device or emulator. Gesture feel, haptics, long-press timing, edge auto-scroll speed, IME behaviour in sheets and SAF file pickers have only been exercised under Robolectric (or not at all, for the file pickers).
 
 ## Known limitations and likely next steps
 
