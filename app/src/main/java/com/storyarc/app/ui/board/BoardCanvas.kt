@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.foundation.layout.Column
 import com.storyarc.app.domain.manuscript.Stats
@@ -130,6 +131,9 @@ sealed interface BoardHit {
 
     /** The plus button after the last timeline. */
     data object AddTimeline : BoardHit
+
+    /** The assemble button on the scenes timeline's header. */
+    data class Assemble(val timelineId: String) : BoardHit
 }
 
 /**
@@ -143,6 +147,9 @@ object BoardDims {
     fun row(vertical: Boolean) = if (vertical) 132.dp else 88.dp
     val marker = 40.dp
     val cardPadding = 4.dp
+
+    /** The assemble button in the scenes timeline header's top-end corner (not zoomed). */
+    val assembleButton = 36.dp
 
     /** Thickness of the add-timeline button after the last timeline (not zoomed). */
     val addTimeline = 48.dp
@@ -225,6 +232,7 @@ fun BoardCanvas(
     val stripPx = with(density) { BoardDims.groupStrip.toPx() } * viewport.zoom
     val edgePx = with(density) { BoardDims.autoScrollEdge.toPx() }
     val addPx = with(density) { BoardDims.addTimeline.toPx() }
+    val assemblePx = with(density) { BoardDims.assembleButton.toPx() }
     val colors = MaterialTheme.colorScheme
 
     fun geometryFor(board: BoardState) = with(density) {
@@ -338,7 +346,7 @@ fun BoardCanvas(
                 t.optionsButton?.contains(p) == true -> BoardHit.TrayOptions
                 t.header.contains(p) -> BoardHit.TrayToggle
                 t.contains(p) -> t.itemAt(p)?.let { currentListed[it] }?.let { b -> b.root?.let { BoardHit.Group(it) } ?: BoardHit.Node(b.nodes.keys.single()) }
-                boardRect.contains(p) -> hitTest(currentUi, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx)
+                boardRect.contains(p) -> hitTest(currentUi, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx, vertical, assemblePx)
                 else -> null
             }
         }
@@ -414,7 +422,7 @@ fun BoardCanvas(
 
         /** The node whose resize handle (its trailing edge along the time axis) is under [p]. */
         fun resizeHandleAt(p: Offset): String? {
-            val hit = hitTest(currentUi, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx)
+            val hit = hitTest(currentUi, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx, vertical, assemblePx)
             val id = (hit as? BoardHit.Node)?.nodeId ?: return null
             val cx = local(p).x + viewport.scrollAlong
             val edge = currentBase.x(currentUi.board.endOf(id) + 1)
@@ -438,7 +446,7 @@ fun BoardCanvas(
             if (!boardRect.contains(p)) return null
             val ui0 = currentUi
             resizeHandleAt(p)?.let { id -> return DragStart(DragItem.Node(id), null, null, Offset.Zero, immediate = true, resize = true) }
-            val item = when (val hit = hitTest(ui0, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx)) {
+            val item = when (val hit = hitTest(ui0, currentBase, currentSpans, currentStrip, axes.board(p), headerPx, viewport, addPx, vertical, assemblePx)) {
                 is BoardHit.Node -> DragItem.Node(hit.nodeId)
                 is BoardHit.Marker -> DragItem.Marker(hit.markerId)
                 is BoardHit.Group -> DragItem.Group(hit.groupId)
@@ -835,7 +843,14 @@ private fun BoardContent(
                     // The scenes timeline shows the manuscript's running total.
                     val words = ui.manuscriptWords()
                     Column {
-                        Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = if (vertical) 1 else 2, overflow = TextOverflow.Ellipsis)
+                        // Clear of the assemble button in the top-end corner.
+                        Text(
+                            t.name,
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = if (vertical) 1 else 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(end = if (vertical) BoardDims.assembleButton else 20.dp),
+                        )
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                             Icon(Icons.AutoMirrored.Filled.MenuBook, "Scenes timeline", Modifier.size(14.dp), tint = colors.primary)
                             Text(
@@ -848,6 +863,24 @@ private fun BoardContent(
                     }
                 } else {
                     Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = if (vertical) 2 else 3, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (t.isScenes) {
+                // Assemble button; taps reach it through the board's hit test.
+                Box(
+                    Modifier
+                        .offset { axes.screen(0f, geometry.y(r) - sy).round() }
+                        .size(headerCell),
+                    contentAlignment = Alignment.TopEnd,
+                ) {
+                    Box(
+                        Modifier
+                            .size(BoardDims.assembleButton)
+                            .semantics(mergeDescendants = true) { onClick("Assemble manuscript") { onTap(BoardHit.Assemble(id)); true } },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.IosShare, "Assemble manuscript", Modifier.size(20.dp), tint = colors.primary)
+                    }
                 }
             }
             t.color?.let { c ->
@@ -888,6 +921,7 @@ private fun Modifier.timelineSemantics(
         if (i < ui.board.timelines.lastIndex) add(CustomAccessibilityAction("Move later") { onDrop(item, DragTarget.TimelineAt(i + 1)); true })
         add(CustomAccessibilityAction("Move nodes to tray") { onDrop(item, DragTarget.Tray(ui.tray.size)); true })
         add(CustomAccessibilityAction("Delete with its nodes") { onDrop(item, DragTarget.Trash); true })
+        if (timelineId == ui.scenesTimeline) add(CustomAccessibilityAction("Assemble manuscript") { onTap(BoardHit.Assemble(timelineId)); true })
     }
 }
 
@@ -963,12 +997,21 @@ private fun hitTest(
     headerPx: Float,
     vp: BoardViewport,
     addPx: Float,
+    vertical: Boolean,
+    assemblePx: Float,
 ): BoardHit? {
     val cy = p.y + vp.scrollAcross
     val row = g.rowAt(cy)
     if (p.x < headerPx) {
         if (row == null && cy >= g.contentHeight && cy < g.contentHeight + addPx) return BoardHit.AddTimeline
-        return row?.let { BoardHit.Timeline(ui.board.timelines[it]) }
+        val t = row?.let { ui.board.timelines[it] } ?: return null
+        if (t == ui.scenesTimeline) {
+            // The button sits in the header cell's top-end corner on screen.
+            val inButton = if (vertical) p.x < assemblePx && cy >= g.y(row + 1) - assemblePx
+            else p.x >= headerPx - assemblePx && cy < g.y(row) + assemblePx
+            if (inButton) return BoardHit.Assemble(t)
+        }
+        return BoardHit.Timeline(t)
     }
     val slot = g.slotAt(p.x - headerPx + vp.scrollAlong)
     ui.board.markerAt(slot)?.let { return BoardHit.Marker(it) }

@@ -13,6 +13,7 @@ import com.storyarc.app.data.repo.StoryRepository.ColorTarget
 import com.storyarc.app.data.repo.StoryRepository.TagTarget
 import com.storyarc.app.data.repo.ViewRows
 import com.storyarc.board.Block
+import com.storyarc.app.domain.manuscript.Manuscript
 import com.storyarc.board.BoardState
 import com.storyarc.board.Drop
 import com.storyarc.board.Item
@@ -140,6 +141,10 @@ class BoardViewModel(
 
     /** Ends a scene editing session that began with [before]; it becomes one undo step. */
     fun finishSceneEdit(nodeId: String, before: com.storyarc.app.data.db.SceneTextEntity?) = launch { finishSceneEdit(nodeId, before) }
+
+    suspend fun projectName(): String = repo.projects.project(projectId)?.name.orEmpty()
+
+    suspend fun manuscript(author: String?): Manuscript = repo.manuscript(viewId, author)
 
     fun editNote(noteId: String, title: String? = null, body: String? = null) = launch { editNote(projectId, noteId, title, body) }
 

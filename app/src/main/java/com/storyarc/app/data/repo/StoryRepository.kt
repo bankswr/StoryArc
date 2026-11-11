@@ -7,6 +7,9 @@ import com.storyarc.app.data.db.NodeGroupEntity
 import com.storyarc.app.data.db.ProjectEntity
 import com.storyarc.app.data.db.ProjectWorldEntity
 import com.storyarc.app.data.db.SceneTextEntity
+import com.storyarc.app.domain.manuscript.Assembler
+import com.storyarc.app.domain.manuscript.Manuscript
+import com.storyarc.app.domain.manuscript.SceneSource
 import com.storyarc.app.domain.manuscript.Stats
 import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.app.data.db.TimelineEntity
@@ -504,6 +507,22 @@ class StoryRepository(
     }
 
     suspend fun sceneText(nodeId: String): SceneTextEntity? = board.sceneText(nodeId)
+
+    /**
+     * The project's scenes timeline in [viewId], assembled in that view's slot order (tray
+     * scenes excluded) into a manuscript titled with the project's name.
+     */
+    suspend fun manuscript(viewId: String, author: String?): Manuscript {
+        val view = requireNotNull(projects.view(viewId)) { "unknown view $viewId" }
+        val scenes = board.timelinesInView(viewId).firstOrNull { it.isScenes }
+        val ids = scenes?.let { ViewRows.load(board, viewId).toBoard().nodesOn(it.id) }.orEmpty()
+        val texts = board.sceneTexts(ids).associateBy { it.nodeId }
+        return Assembler.assemble(
+            projects.project(view.projectId)?.name.orEmpty(),
+            ids.map { SceneSource(projects.node(it)?.text.orEmpty(), texts[it]?.body, texts[it]?.styles) },
+            author,
+        )
+    }
 
     /** The row for [body] and [styles], or null for no text at all (which removes the row). */
     fun sceneRow(nodeId: String, body: String, styles: String = "[]"): SceneTextEntity? =

@@ -90,6 +90,7 @@ fun BoardScreen(
     var editingNode by rememberSaveable { mutableStateOf<String?>(null) }
     // A scene open in the full-screen manuscript editor.
     var editingScene by rememberSaveable { mutableStateOf<String?>(null) }
+    var assembling by rememberSaveable { mutableStateOf(false) }
     var editingMarker by rememberSaveable { mutableStateOf<String?>(null) }
     var addingMarker by rememberSaveable { mutableStateOf(false) }
     var editingGroup by rememberSaveable { mutableStateOf<String?>(null) }
@@ -265,6 +266,7 @@ fun BoardScreen(
                             }
                             is BoardHit.Timeline -> editingTimeline = hit.timelineId
                             BoardHit.AddTimeline -> addingTimeline = true
+                            is BoardHit.Assemble -> assembling = true
                             is BoardHit.Group -> editingGroup = hit.groupId
                             is BoardHit.Floating -> editingFloating = true
                             BoardHit.TrayToggle -> trayExpanded = !trayExpanded
@@ -355,7 +357,7 @@ fun BoardScreen(
         if (current != null && current.timelines.none { it.id == id }) {
             LaunchedEffect(id) { editingTimeline = null }
         } else if (current != null) {
-            TimelineSheet(vm, current, id, onDismiss = { editingTimeline = null })
+            TimelineSheet(vm, current, id, onDismiss = { editingTimeline = null }, onAssemble = { editingTimeline = null; assembling = true })
         }
     }
     if (trayOptions && current != null) {
@@ -375,6 +377,9 @@ fun BoardScreen(
             addingTimeline = false
             vm.addTimeline(name)
         }
+    }
+    if (assembling && current != null) {
+        AssembleDialog(vm, current, settings.wordsPerPage, onDismiss = { assembling = false })
     }
     if (filtering && current != null) {
         FilterSheet(vm, current, onDismiss = { filtering = false })

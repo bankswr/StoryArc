@@ -246,7 +246,7 @@ fun GroupSheet(
 /** A timeline's name and color, with tray and delete actions. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun TimelineSheet(vm: BoardViewModel, ui: BoardUi, timelineId: String, onDismiss: () -> Unit) {
+fun TimelineSheet(vm: BoardViewModel, ui: BoardUi, timelineId: String, onDismiss: () -> Unit, onAssemble: () -> Unit = {}) {
     val timeline = ui.timelines.find { it.id == timelineId } ?: return
     var name by remember(timelineId) { mutableStateOf(timeline.name) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -279,6 +279,7 @@ fun TimelineSheet(vm: BoardViewModel, ui: BoardUi, timelineId: String, onDismiss
                 style = MaterialTheme.typography.bodySmall,
             )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (timeline.isScenes) OutlinedButton(onClick = onAssemble) { Text("Assemble manuscript") }
                 OutlinedButton(onClick = { vm.moveTimelineToTray(timelineId); onDismiss() }) { Text("Remove, nodes to tray") }
                 TextButton(onClick = { confirmDelete = true }) { Text("Delete with its nodes") }
             }

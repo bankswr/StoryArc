@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -17,6 +18,10 @@ data class Settings(
     val verticalBoard: Boolean = false,
     /** Words per manuscript page, for page counts. */
     val wordsPerPage: Int = DEFAULT_WORDS_PER_PAGE,
+    /** Export paper size: a `PaperSize` name, or null for automatic (Letter or A4 by region). */
+    val paperSize: String? = null,
+    /** Author name last used for an export, offered again next time. */
+    val authorName: String = "",
 ) {
     companion object {
         /** The usual standard-manuscript estimate (12 pt, double-spaced). */
@@ -31,6 +36,8 @@ class SettingsRepository(private val context: Context) {
     private val delayMs = longPreferencesKey("barrier_delay_ms")
     private val vertical = booleanPreferencesKey("board_vertical")
     private val wordsPerPage = intPreferencesKey("words_per_page")
+    private val paperSize = stringPreferencesKey("paper_size")
+    private val authorName = stringPreferencesKey("author_name")
 
     val settings: Flow<Settings> = context.dataStore.data.map { p ->
         Settings(
@@ -38,7 +45,18 @@ class SettingsRepository(private val context: Context) {
             p[delayMs] ?: 500,
             p[vertical] ?: false,
             p[wordsPerPage] ?: Settings.DEFAULT_WORDS_PER_PAGE,
+            p[paperSize],
+            p[authorName].orEmpty(),
         )
+    }
+
+    /** Sets the export paper size by `PaperSize` name; null means automatic. */
+    suspend fun setPaperSize(name: String?) {
+        context.dataStore.edit { if (name == null) it.remove(paperSize) else it[paperSize] = name }
+    }
+
+    suspend fun setAuthorName(name: String) {
+        context.dataStore.edit { it[authorName] = name }
     }
 
     suspend fun setWordsPerPage(words: Int) {

@@ -35,7 +35,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -369,7 +368,7 @@ private fun SameTimePanel(ui: BoardUi, nodeId: String) {
     }
     preview?.let { id ->
         val n = ui.nodes[id]
-        AlertDialog(
+        com.storyarc.app.ui.common.AppAlertDialog(
             onDismissRequest = { preview = null },
             confirmButton = { TextButton(onClick = { preview = null }) { Text("Close") } },
             title = { Text(ui.timelines.find { it.id == ui.board.placements[id]?.timelineId }?.name.orEmpty()) },

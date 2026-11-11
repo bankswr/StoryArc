@@ -246,6 +246,11 @@ Done 2026-11-11. As built:
   - A Compose flow test: open a scene, type, check the stats, close, undo.
 
 ### M14 — Assemble and ODT export
+Done 2026-11-11. As built:
+- Assembly lives in `StoryRepository.manuscript(viewId, author)`, not the view model. Robolectric tests run on the main thread, so `runBlocking` there deadlocks against `viewModelScope`.
+- The title page uses master page `Title_20_Page` (no header). The first chapter heading switches to `Standard` and, with an author, restarts page numbering at 1.
+- Blank lines in prose are dropped, because indents mark paragraphs. A line that is just `#`, `***`, `* * *`, `⁂` or `~` becomes a centred `#` scene break.
+- Manual check: `OdtWriterTest.writesSamplesForManualCheck` writes `app/build/odt-samples/*.odt`. Convert them with `soffice --headless --convert-to pdf`.
 - **Button and dialog:** an "Assemble" button on the scenes timeline header opens the export dialog. It has an author option (off by default) and an author name field, remembered in DataStore. Then `ACTION_CREATE_DOCUMENT` opens with the suggested file name `<project>_yyyy_mm_dd.odt`, whitespace → `_`, and characters invalid in file names removed.
 - **Assembler:** a pure Kotlin function from (project, view, scenes with prose and styles, options) to a document model. It reads scenes in slot order and skips tray scenes. Each scene becomes a chapter with its card name as the heading (first line if the name has several lines); an empty body still gets its heading.
 - **ODT writer:** written by hand on `java.util.zip`, with no new dependency.

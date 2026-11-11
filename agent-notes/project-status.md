@@ -22,6 +22,7 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 | After M11 | Timeline headers: tap to edit, drag to reorder / tray / trash, + to add. Tray sort (manual, A–Z, by primary tag) and filter (tag, search) — `TrayView.kt`, `TrayViewTest`. |
 | M12 (2026-11-11) | Spanning nodes: `BoardState.spans`, `resize`, drag handle on a card's trailing edge, Widen/Narrow TalkBack actions (`BoardSpanTest`, fuzz resizes, `BoardDragTest`). DB schema v3 (span columns, `timeline.isScenes`, `scene_text`), backup format 3 (formats 1–2 still restore). |
 | M13 (2026-11-11) | Scenes timeline (switch in the timeline sheet; header shows manuscript words/pages) and the full-screen scene editor (`SceneEditor.kt`): card name, prose, live stats, same-time / world library / tags panels, side pane at ≥ 840 dp. Words-per-page setting. (`SceneRepositoryTest`, `SceneEditorTest`, `StatsTest`, screenshots.) |
+| M14 (2026-11-11) | Assemble: button in the scenes timeline header (also in its sheet and TalkBack actions) → dialog (paper size, optional author) → `.odt` via the system picker. `domain/manuscript/` holds `Assembler`, `OdtWriter` (hand-built ODF zip), `PaperSize`. Paper size and last author name in Settings/DataStore. (`OdtWriterTest`, `AssembleTest`; samples checked by converting with local LibreOffice.) |
 
 ## How it's verified
 

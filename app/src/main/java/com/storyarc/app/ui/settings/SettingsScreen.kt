@@ -117,6 +117,19 @@ fun SettingsScreen(onBack: () -> Unit) {
                     }
                 },
             )
+            ListItem(
+                headlineContent = { Text("Paper size") },
+                supportingContent = {
+                    Column {
+                        Text("For assembled manuscripts. Letter and A4 are standard for submissions; the others are common book trim sizes.")
+                        com.storyarc.app.ui.common.PaperSizePicker(
+                            settings.paperSize,
+                            { scope.launch { settingsRepo.setPaperSize(it) } },
+                            Modifier.padding(top = 8.dp),
+                        )
+                    }
+                },
+            )
             SectionHeader("Backups")
             ListItem(
                 headlineContent = { Text("Back up everything") },
