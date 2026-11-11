@@ -30,6 +30,10 @@ android {
     }
 
     buildTypes {
+        // Own package and name, so the debug build installs beside the release build (different signing keys).
+        debug {
+            applicationIdSuffix = ".debug"
+        }
         release {
             signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false

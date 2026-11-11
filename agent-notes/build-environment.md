@@ -12,7 +12,8 @@ How to build StoryArc on this machine, and the toolchain constraints behind the 
   ```
 - Android SDK: `~/Android/Sdk` (platform android-36 only). `local.properties` (gitignored) sets `sdk.dir`.
 - Don't use `jvmToolchain(...)` in build scripts: no JDK 17 is installed and toolchain download isn't configured. Modules target JVM 17 bytecode through `compilerOptions.jvmTarget` / `compileOptions`.
-- The user installs the debug APK themselves; there is no emulator workflow.
+- The user installs the APKs themselves; there is no emulator workflow.
+- The debug build's package is `com.storyarc.app.debug`, labelled "StoryArc Debug" (`app/src/debug/res/values/strings.xml`), so it installs beside the release build (`com.storyarc.app`) with separate data. Before 2026-11-11 both builds shared `com.storyarc.app`, so the differently signed release APK refused to install over the debug build.
 
 ## Version constraints
 
