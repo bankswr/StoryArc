@@ -40,8 +40,25 @@ data class BoardUi(
     val groupTags: Map<String, List<String>> = emptyMap(),
     val hiddenTags: Set<String> = emptySet(),
     val tray: List<Block> = emptyList(),
+    /** Word counts of nodes that have manuscript text. */
+    val sceneWords: Map<String, Int> = emptyMap(),
 ) {
     fun isPlaced(nodeId: String) = nodeId in board.placements
+
+    /** The project's scenes timeline, if it is in this view. */
+    val scenesTimeline: String? get() = timelines.firstOrNull { it.isScenes }?.id
+
+    /** A node placed on the scenes timeline. */
+    fun isScene(nodeId: String) = scenesTimeline != null && board.placements[nodeId]?.timelineId == scenesTimeline
+
+    /** Whether the node has manuscript text, wherever it is. */
+    fun hasProse(nodeId: String) = nodeId in sceneWords
+
+    /** Scenes on the scenes timeline, in slot order (the order they are assembled in). */
+    fun scenesInOrder(): List<String> = scenesTimeline?.let { board.nodesOn(it) }.orEmpty()
+
+    /** Total words of the scenes on the scenes timeline. */
+    fun manuscriptWords(): Int = scenesInOrder().sumOf { sceneWords[it] ?: 0 }
 
     fun isOnBoard(groupId: String) = groupId in board.groups
 
@@ -90,6 +107,7 @@ class BoardViewModel(
             markerTags = repo.tags.markerTagsInView(viewId).ordered({ it.targetId }, { it.tagId }, { it.ordinal }),
             groupTags = repo.tags.groupTagsInView(viewId).ordered({ it.targetId }, { it.tagId }, { it.ordinal }),
             hiddenTags = repo.board.hiddenTags(viewId).map { it.tagId }.toSet(),
+            sceneWords = repo.board.sceneWordsInView(viewId).associate { it.nodeId to it.words },
         )
     }
 
@@ -111,6 +129,19 @@ class BoardViewModel(
     fun move(item: Item, drop: Drop) = launch { move(viewId, item, drop) }
 
     fun resize(nodeId: String, span: Int) = launch { resize(viewId, nodeId, span) }
+
+    fun setScenesTimeline(timelineId: String?) = launch { setScenesTimeline(projectId, timelineId) }
+
+    suspend fun sceneText(nodeId: String) = repo.sceneText(nodeId)
+
+    fun sceneRow(nodeId: String, body: String, styles: String) = repo.sceneRow(nodeId, body, styles)
+
+    fun saveSceneDraft(nodeId: String, body: String, styles: String = "[]") = launch { saveSceneDraft(nodeId, body, styles) }
+
+    /** Ends a scene editing session that began with [before]; it becomes one undo step. */
+    fun finishSceneEdit(nodeId: String, before: com.storyarc.app.data.db.SceneTextEntity?) = launch { finishSceneEdit(nodeId, before) }
+
+    fun editNote(noteId: String, title: String? = null, body: String? = null) = launch { editNote(projectId, noteId, title, body) }
 
     /** Creates an empty node in the tray and reports its id. */
     fun addNodeToTray(onCreated: (String) -> Unit) = launch { onCreated(addNodeToTray(viewId)) }

@@ -99,6 +99,24 @@ fun SettingsScreen(onBack: () -> Unit) {
                     },
                 )
             }
+            SectionHeader("Manuscript")
+            var wpp by remember { mutableFloatStateOf(settings.wordsPerPage.toFloat()) }
+            LaunchedEffect(settings.wordsPerPage) { wpp = settings.wordsPerPage.toFloat() }
+            ListItem(
+                headlineContent = { Text("Words per page: ${wpp.toInt()}") },
+                supportingContent = {
+                    Column {
+                        Text("Used for page counts. 250 is the usual estimate for a standard manuscript page.")
+                        Slider(
+                            value = wpp,
+                            onValueChange = { wpp = (it / 10).toInt() * 10f },
+                            onValueChangeFinished = { scope.launch { settingsRepo.setWordsPerPage(wpp.toInt()) } },
+                            valueRange = 100f..600f,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                },
+            )
             SectionHeader("Backups")
             ListItem(
                 headlineContent = { Text("Back up everything") },

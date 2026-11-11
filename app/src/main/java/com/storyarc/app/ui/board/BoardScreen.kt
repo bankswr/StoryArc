@@ -88,6 +88,8 @@ fun BoardScreen(
     val viewport = rememberBoardViewport()
     val settings by appContainer().settings.collectAsStateWithLifecycle()
     var editingNode by rememberSaveable { mutableStateOf<String?>(null) }
+    // A scene open in the full-screen manuscript editor.
+    var editingScene by rememberSaveable { mutableStateOf<String?>(null) }
     var editingMarker by rememberSaveable { mutableStateOf<String?>(null) }
     var addingMarker by rememberSaveable { mutableStateOf(false) }
     var editingGroup by rememberSaveable { mutableStateOf<String?>(null) }
@@ -137,6 +139,13 @@ fun BoardScreen(
             finishing = false
             if (discarded && floatingId == id) floatingId = null
         }
+    }
+
+    val scene = editingScene
+    val sceneUi = ui
+    if (scene != null && sceneUi != null) {
+        SceneEditor(vm, sceneUi, scene, settings.wordsPerPage, onClose = { editingScene = null })
+        return
     }
 
     Scaffold(
@@ -238,6 +247,7 @@ fun BoardScreen(
                     floating = floatingId.takeIf { !editingFloating && !finishing },
                     trayHidden = setOfNotNull(floatingId),
                     trayView = trayView,
+                    wordsPerPage = settings.wordsPerPage,
                     onTap = { hit ->
                         val sel = selection
                         if (sel != null) {
@@ -247,9 +257,12 @@ fun BoardScreen(
                             return@BoardCanvas
                         }
                         when (hit) {
-                            is BoardHit.Node -> editingNode = hit.nodeId
+                            is BoardHit.Node -> if (current.isScene(hit.nodeId) || current.hasProse(hit.nodeId)) editingScene = hit.nodeId else editingNode = hit.nodeId
                             is BoardHit.Marker -> editingMarker = hit.markerId
-                            is BoardHit.Empty -> vm.addNode(Drop.Onto(hit.timelineId, hit.slot)) { editingNode = it }
+                            is BoardHit.Empty -> {
+                                val onScenes = hit.timelineId == current.scenesTimeline
+                                vm.addNode(Drop.Onto(hit.timelineId, hit.slot)) { if (onScenes) editingScene = it else editingNode = it }
+                            }
                             is BoardHit.Timeline -> editingTimeline = hit.timelineId
                             BoardHit.AddTimeline -> addingTimeline = true
                             is BoardHit.Group -> editingGroup = hit.groupId

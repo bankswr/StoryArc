@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 3,
-    "identityHash": "7df86c17bb6937cdb1f6f7047368717c",
+    "identityHash": "164e96d066a782ec025331e5fdbfaab5",
     "entities": [
       {
         "tableName": "project",
@@ -1441,7 +1441,7 @@
       },
       {
         "tableName": "scene_text",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`nodeId` TEXT NOT NULL, `body` TEXT NOT NULL, `styles` TEXT NOT NULL DEFAULT '[]', PRIMARY KEY(`nodeId`), FOREIGN KEY(`nodeId`) REFERENCES `node`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`nodeId` TEXT NOT NULL, `body` TEXT NOT NULL, `styles` TEXT NOT NULL DEFAULT '[]', `words` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`nodeId`), FOREIGN KEY(`nodeId`) REFERENCES `node`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED)",
         "fields": [
           {
             "fieldPath": "nodeId",
@@ -1461,6 +1461,13 @@
             "affinity": "TEXT",
             "notNull": true,
             "defaultValue": "'[]'"
+          },
+          {
+            "fieldPath": "words",
+            "columnName": "words",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
           }
         ],
         "primaryKey": {
@@ -1486,7 +1493,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7df86c17bb6937cdb1f6f7047368717c')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '164e96d066a782ec025331e5fdbfaab5')"
     ]
   }
 }

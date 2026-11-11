@@ -109,4 +109,42 @@ class BoardScreenshotTest {
         save("board-dragging")
         compose.onRoot().performTouchInput { up() }
     }
+
+    /** The Act timeline as the scenes timeline, with prose in "Act I: Departure". */
+    private fun openScene(): Unit = runBlocking {
+        val repo = (compose.activity.application as StoryArcApp).container.repository
+        val (p, v) = seed()
+        val act = repo.board.timelinesInView(v).single { it.name == "Act" }.id
+        repo.setScenesTimeline(p, act)
+        val scene = repo.board.nodesInView(v).single { it.text == "Act I: Departure" }.id
+        repo.saveSceneDraft(
+            scene,
+            "The harbour bells rang twice before dawn, and Mara was already at the rail.\n\n" +
+                "She had packed in the dark: two shirts, the letter, the knife her father had never asked to have back. " +
+                "Below, the dock lamps guttered in the wind coming off the water.",
+        )
+        compose.activity.setContent { StoryArcTheme { BoardScreen(p, v, onBack = {}, onTimelines = {}) } }
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Act I: Departure")).fetchSemanticsNodes().isNotEmpty() }
+        save("board-scenes")
+        compose.onNode(hasText("Act I: Departure")).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("words", substring = true)).fetchSemanticsNodes().size >= 2 }
+    }
+
+    @Test
+    fun sceneEditor() {
+        openScene()
+        save("scene-editor")
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("At the same time")).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Waits at the inn")).fetchSemanticsNodes().isNotEmpty() }
+        save("scene-editor-same-time")
+    }
+
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-xhdpi")
+    fun sceneEditorTablet() {
+        openScene()
+        compose.onNode(androidx.compose.ui.test.hasContentDescription("At the same time")).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Waits at the inn")).fetchSemanticsNodes().isNotEmpty() }
+        save("scene-editor-tablet")
+    }
 }

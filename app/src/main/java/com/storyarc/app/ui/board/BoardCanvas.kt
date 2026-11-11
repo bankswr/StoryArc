@@ -25,6 +25,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.foundation.layout.Column
+import com.storyarc.app.domain.manuscript.Stats
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -212,6 +215,7 @@ fun BoardCanvas(
     floating: String? = null,
     trayHidden: Set<String> = emptySet(),
     trayView: TrayView = TrayView(),
+    wordsPerPage: Int = 250,
 ) {
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
@@ -550,7 +554,7 @@ fun BoardCanvas(
                 BoardContent(
                     ui, shown, geometry, spans, slots, rowOf, dragged, draggedMarker, blockedBy, selected,
                     session?.item as? DragItem.Group, (session?.item as? DragItem.Timeline)?.id,
-                    sx, sy, view, headerDp, headerPx, stripPx, vertical, axes, viewport.zoom,
+                    sx, sy, view, headerDp, headerPx, stripPx, vertical, axes, viewport.zoom, wordsPerPage,
                     onTap = { currentOnTap(it) },
                     onDrop = { i, t -> currentOnDrop(i, t, false) },
                 )
@@ -686,6 +690,7 @@ private fun BoardContent(
     vertical: Boolean,
     axes: BoardAxes,
     zoom: Float,
+    wordsPerPage: Int,
     onTap: (BoardHit) -> Unit,
     onDrop: (DragItem, DragTarget) -> Unit,
 ) {
@@ -804,6 +809,7 @@ private fun BoardContent(
                 ghost = ghost,
                 selected = nodeId in selected,
                 grip = if (vertical) GripEdge.Bottom else GripEdge.End,
+                badge = cardBadge(ui, nodeId),
             )
         }
     }
@@ -825,7 +831,24 @@ private fun BoardContent(
                     .timelineSemantics(ui, id, onTap, onDrop),
                 contentAlignment = Alignment.CenterStart,
             ) {
-                Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = if (vertical) 2 else 3, overflow = TextOverflow.Ellipsis)
+                if (t.isScenes) {
+                    // The scenes timeline shows the manuscript's running total.
+                    val words = ui.manuscriptWords()
+                    Column {
+                        Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = if (vertical) 1 else 2, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, "Scenes timeline", Modifier.size(14.dp), tint = colors.primary)
+                            Text(
+                                "%,d w · %,d pp".format(words, Stats.pages(words, wordsPerPage)),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                } else {
+                    Text(t.name, style = MaterialTheme.typography.labelLarge, maxLines = if (vertical) 2 else 3, overflow = TextOverflow.Ellipsis)
+                }
             }
             t.color?.let { c ->
                 Box(
@@ -972,6 +995,7 @@ fun NodeCard(
     selected: Boolean = false,
     faded: Boolean = false,
     grip: GripEdge? = null,
+    badge: CardBadge? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     if (ghost) {
@@ -1004,6 +1028,18 @@ fun NodeCard(
                         .background(LocalContentColor.current.copy(alpha = 0.35f), RoundedCornerShape(2.dp)),
                 )
             }
+            when (badge) {
+                is CardBadge.Words -> Text(
+                    "%,d words".format(badge.words),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.BottomStart).alpha(0.75f),
+                )
+                CardBadge.Manuscript -> Icon(
+                    Icons.AutoMirrored.Filled.MenuBook, "Has manuscript text",
+                    Modifier.align(Alignment.BottomStart).size(14.dp).alpha(0.75f),
+                )
+                null -> {}
+            }
             if (tags.isNotEmpty()) {
                 // Tag dots along the bottom edge; outlined so a dot matching the card stays visible.
                 Row(Modifier.align(Alignment.BottomEnd), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1019,6 +1055,18 @@ fun NodeCard(
             }
         }
     }
+}
+
+/** A note in a card's corner: a scene's word count, or a mark for manuscript text off the scenes timeline. */
+sealed interface CardBadge {
+    data class Words(val words: Int) : CardBadge
+    data object Manuscript : CardBadge
+}
+
+fun cardBadge(ui: BoardUi, nodeId: String): CardBadge? = when {
+    ui.isScene(nodeId) -> CardBadge.Words(ui.sceneWords[nodeId] ?: 0)
+    ui.hasProse(nodeId) -> CardBadge.Manuscript
+    else -> null
 }
 
 /** Which edge of a card carries its resize grip. */

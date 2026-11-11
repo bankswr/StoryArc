@@ -6,6 +6,8 @@ import com.storyarc.app.data.db.NodeEntity
 import com.storyarc.app.data.db.NodeGroupEntity
 import com.storyarc.app.data.db.ProjectEntity
 import com.storyarc.app.data.db.ProjectWorldEntity
+import com.storyarc.app.data.db.SceneTextEntity
+import com.storyarc.app.domain.manuscript.Stats
 import com.storyarc.app.data.db.StoryDatabase
 import com.storyarc.app.data.db.TimelineEntity
 import com.storyarc.app.data.db.ViewEntity
@@ -218,7 +220,7 @@ class StoryRepository(
                 val after = if (v in views) without.copy(board = without.board.removeTimeline(timelineId)) else without
                 addAll(layoutChanges(before, before.withLayout(after)))
             }
-            nodeIds.forEach { n -> addAll(board.nodeTags(n).map { Change(it, null) }) }
+            nodeIds.forEach { n -> addAll(ownedRowDeletes(n)) }
             nodeIds.forEach { n -> add(Change(requireNotNull(projects.node(n)), null)) }
             add(Change(timeline, null))
         }
@@ -228,8 +230,17 @@ class StoryRepository(
     /** Deletes of a node and its tags if [viewId] is the only view holding it (placed or in the tray). */
     private suspend fun orphanDeletes(nodeId: String, viewId: String): List<Change> {
         if (board.viewsOfNode(nodeId).any { it != viewId }) return emptyList()
-        return board.nodeTags(nodeId).map { Change(it, null) } + Change(requireNotNull(projects.node(nodeId)), null)
+        return ownedRowDeletes(nodeId) + Change(requireNotNull(projects.node(nodeId)), null)
     }
+
+    /** Deletes of the rows a node owns (tags, manuscript text), so undoing its deletion restores them. */
+    private suspend fun ownedRowDeletes(nodeId: String): List<Change> =
+        board.nodeTags(nodeId).map { Change(it, null) } + listOfNotNull(board.sceneText(nodeId)?.let { Change(it, null) })
+
+    /** Inserts copying the rows [from] owns (tags, manuscript text) onto node [to]. */
+    private suspend fun ownedRowCopies(from: String, to: String): List<Change> =
+        board.nodeTags(from).map { Change(null, it.copy(targetId = to)) } +
+            listOfNotNull(board.sceneText(from)?.let { Change(null, it.copy(nodeId = to)) })
 
     suspend fun addNode(viewId: String, text: String, drop: Drop): String = lock.withLock {
         val node = NodeEntity(newId(), projectOf(viewId), text)
@@ -311,17 +322,17 @@ class StoryRepository(
                 val before = ViewRows.load(board, v)
                 addAll(layoutChanges(before, before.withLayout(before.toLayout().without(nodeIds))))
             }
-            nodeIds.forEach { n -> addAll(board.nodeTags(n).map { Change(it, null) }) }
+            nodeIds.forEach { n -> addAll(ownedRowDeletes(n)) }
             nodes.forEach { add(Change(it, null)) }
         }
         perform(nodes.first().projectId, ChangeSet(label, changes))
     }
 
-    /** Copies a node (text, color, tags) as a new, independent node at the end of the tray. */
+    /** Copies a node (text, color, tags, manuscript) as a new, independent node at the end of the tray. */
     suspend fun copyNode(viewId: String, nodeId: String): String = lock.withLock {
         val src = requireNotNull(projects.node(nodeId))
         val copy = src.copy(id = newId())
-        val extra = listOf(Change(null, copy)) + board.nodeTags(nodeId).map { Change(null, it.copy(targetId = copy.id)) }
+        val extra = listOf(Change(null, copy)) + ownedRowCopies(nodeId, copy.id)
         layoutEdit(viewId, "Copy node", extra) { it.append(Block(mapOf(copy.id to 0))) }
         copy.id
     }
@@ -348,7 +359,7 @@ class StoryRepository(
         val extra = buildList {
             nodeIds.forEach { (old, new) ->
                 add(Change(null, requireNotNull(projects.node(old)).copy(id = new)))
-                board.nodeTags(old).forEach { add(Change(null, it.copy(targetId = new))) }
+                addAll(ownedRowCopies(old, new))
             }
             board.groupTags(groupIds.keys.toList()).forEach { add(Change(null, it.copy(targetId = groupIds.getValue(it.targetId)))) }
         }
@@ -476,6 +487,46 @@ class StoryRepository(
             }
         }
         perform(view.projectId, ChangeSet("Delete view", changes))
+    }
+
+    // --- Manuscript ---
+
+    /**
+     * Makes [timelineId] the project's scenes timeline, or clears it when null. A project has at
+     * most one, so the previous one is cleared in the same step.
+     */
+    suspend fun setScenesTimeline(projectId: String, timelineId: String?) = lock.withLock {
+        val changes = projects.timelines(projectId).mapNotNull { t ->
+            val want = t.id == timelineId
+            if (t.isScenes != want) Change(t, t.copy(isScenes = want)) else null
+        }
+        perform(projectId, ChangeSet(if (timelineId == null) "Clear scenes timeline" else "Set scenes timeline", changes))
+    }
+
+    suspend fun sceneText(nodeId: String): SceneTextEntity? = board.sceneText(nodeId)
+
+    /** The row for [body] and [styles], or null for no text at all (which removes the row). */
+    fun sceneRow(nodeId: String, body: String, styles: String = "[]"): SceneTextEntity? =
+        if (body.isEmpty()) null else SceneTextEntity(nodeId, body, styles, Stats.words(body))
+
+    /**
+     * Saves a scene's text while it is being edited, without an undo step; the editing session
+     * becomes one step through [finishSceneEdit].
+     */
+    suspend fun saveSceneDraft(nodeId: String, body: String, styles: String = "[]") = lock.withLock {
+        val row = sceneRow(nodeId, body, styles)
+        if (row != null) rows.upsert(row) else board.sceneText(nodeId)?.let { rows.delete(it) }
+    }
+
+    /**
+     * Records a finished editing session of [nodeId]'s text as one undo step, from [before] (the
+     * row when editing began) to what is saved now.
+     */
+    suspend fun finishSceneEdit(nodeId: String, before: SceneTextEntity?) = lock.withLock {
+        val node = projects.node(nodeId) ?: return@withLock
+        val after = board.sceneText(nodeId)
+        if (after == before) return@withLock
+        perform(node.projectId, ChangeSet("Edit scene", listOf(Change(before, after))))
     }
 
     // --- Tags and color (undoable; recorded on [projectId]'s undo stack) ---

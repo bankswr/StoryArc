@@ -170,7 +170,8 @@ data class TrayEntity(
 
 /**
  * Manuscript prose of a scene node. [styles] is a JSON list of bold/italic ranges over [body]
- * (see `StyledText`). Kept apart from [NodeEntity] so loading a board never loads prose.
+ * (see `StyledText`). [words] caches the word count of [body] so boards can show counts
+ * without loading prose. Kept apart from [NodeEntity] so loading a board never loads prose.
  */
 @Serializable
 @Entity(
@@ -181,6 +182,7 @@ data class SceneTextEntity(
     @PrimaryKey val nodeId: String,
     val body: String,
     @ColumnInfo(defaultValue = "'[]'") val styles: String = "[]",
+    @ColumnInfo(defaultValue = "0") val words: Int = 0,
 )
 
 @Serializable

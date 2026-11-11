@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
 
 /** Tags (with picker) and override color for one board item. */
 @Composable
-private fun TagsAndColor(
+internal fun TagsAndColor(
     vm: BoardViewModel,
     ui: BoardUi,
     assigned: List<String>,
@@ -264,6 +264,16 @@ fun TimelineSheet(vm: BoardViewModel, ui: BoardUi, timelineId: String, onDismiss
                 modifier = Modifier.fillMaxWidth(),
             )
             EditorSection("Color") { ColorPicker(timeline.color, { vm.setColor(ColorTarget.Timeline(timelineId), it) }) }
+            ListItem(
+                headlineContent = { Text("Scenes timeline") },
+                supportingContent = {
+                    Text(
+                        if (timeline.isScenes) "Tapping a node here opens the manuscript editor. The project's story is assembled from this timeline."
+                        else "Use this timeline for the project's scenes. A project has one; choosing this replaces the current one.",
+                    )
+                },
+                trailingContent = { Switch(timeline.isScenes, { vm.setScenesTimeline(if (it) timelineId else null) }) },
+            )
             Text(
                 "Long-press the timeline's name to reorder it, or drag it to the tray or the trash.",
                 style = MaterialTheme.typography.bodySmall,

@@ -152,7 +152,7 @@ private fun TrayCard(ui: BoardUi, block: Block, modifier: Modifier) {
     if (group == null) {
         val id = block.nodes.keys.single()
         val node = ui.nodes[id] ?: return
-        NodeCard(node, modifier, color = ui.nodeColor(id), tags = ui.nodeTags[id].orEmpty().mapNotNull { ui.tags[it] })
+        NodeCard(node, modifier, color = ui.nodeColor(id), tags = ui.nodeTags[id].orEmpty().mapNotNull { ui.tags[it] }, badge = cardBadge(ui, id))
         return
     }
     val accent = ui.groupColor(group)?.let { Color(it) } ?: colors.tertiary

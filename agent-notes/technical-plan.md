@@ -221,6 +221,13 @@ Done 2026-11-11. Rules as built (see the comment above `Drop` in `BoardOps.kt`):
   - A Robolectric gesture test for the handle and a screenshot of spanned cards.
 
 ### M13 — Scenes timeline and scene editor
+Done 2026-11-11. As built:
+- `scene_text.words` caches the word count, so the board loads counts without prose (`BoardDao.sceneWordsInView`).
+- The editor replaces the board inside `BoardScreen` (state `editingScene`), not as a separate route, so it shares `BoardViewModel` and `BoardUi`.
+- Drafts are written with `saveSceneDraft`, which records no undo step. On close, `finishSceneEdit(before)` records one `Edit scene` change set. The text as it was when the session began is kept in `rememberSaveable`, so the step stays correct across rotation.
+- Rows a node owns (tags, scene text) are deleted and copied through `ownedRowDeletes` / `ownedRowCopies`, so undoing a delete restores the prose.
+- Typing undo uses `TextFieldState.undoState`.
+- Tapping a node opens the scene editor if the node is on the scenes timeline or has prose; otherwise it opens the node sheet.
 - **Header:** the timeline header menu gets "Use as scenes timeline" and "Stop using as scenes timeline". The scenes header shows a manuscript icon and the total words and pages.
 - **Editor screen:** full screen, opened from a scene card, both in a view and from the tray. Contents:
   - the card name field (same behaviour as today's node text), tags, color, and the prose field;

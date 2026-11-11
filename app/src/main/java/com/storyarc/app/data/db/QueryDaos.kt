@@ -43,6 +43,9 @@ interface ProjectDao {
     @Query("SELECT * FROM node WHERE id = :id")
     suspend fun node(id: String): NodeEntity?
 
+    @Query("SELECT * FROM timeline WHERE projectId = :projectId")
+    suspend fun timelines(projectId: String): List<TimelineEntity>
+
     @Query("SELECT w.* FROM world w JOIN project_world pw ON pw.worldId = w.id WHERE pw.projectId = :projectId ORDER BY w.name")
     fun observeWorlds(projectId: String): Flow<List<WorldEntity>>
 }
@@ -90,6 +93,19 @@ interface BoardDao {
     @Query("SELECT * FROM view_hidden_tag WHERE viewId = :viewId")
     suspend fun hiddenTags(viewId: String): List<ViewHiddenTagEntity>
 
+    @Query("SELECT * FROM scene_text WHERE nodeId = :nodeId")
+    suspend fun sceneText(nodeId: String): SceneTextEntity?
+
+    @Query("SELECT * FROM scene_text WHERE nodeId IN (:nodeIds)")
+    suspend fun sceneTexts(nodeIds: List<String>): List<SceneTextEntity>
+
+    /** Word counts of the view's nodes that have manuscript text. */
+    @Query(
+        """SELECT nodeId, words FROM scene_text WHERE nodeId IN
+           (SELECT nodeId FROM placement WHERE viewId = :viewId UNION SELECT nodeId FROM tray_item WHERE viewId = :viewId)"""
+    )
+    suspend fun sceneWordsInView(viewId: String): List<NodeWords>
+
     /** Emits whenever any layout or content row of the view changes; the payload is unused. */
     @Query(
         """SELECT (SELECT COUNT(*) FROM placement WHERE viewId = :viewId) +
@@ -100,7 +116,8 @@ interface BoardDao {
                   (SELECT COUNT(*) FROM timeline) + (SELECT COUNT(*) FROM node) +
                   (SELECT COUNT(*) FROM node_tag) + (SELECT COUNT(*) FROM tag) +
                   (SELECT COUNT(*) FROM marker_tag) + (SELECT COUNT(*) FROM group_tag) +
-                  (SELECT COUNT(*) FROM view_hidden_tag) + (SELECT COUNT(*) FROM board_view)"""
+                  (SELECT COUNT(*) FROM view_hidden_tag) + (SELECT COUNT(*) FROM board_view) +
+                  (SELECT COUNT(*) FROM scene_text)"""
     )
     fun observeViewChanges(viewId: String): Flow<Int>
 
@@ -122,6 +139,8 @@ interface BoardDao {
 }
 
 data class TimelineCount(val timelineId: String, val count: Int)
+
+data class NodeWords(val nodeId: String, val words: Int)
 
 @Dao
 interface TagDao {
