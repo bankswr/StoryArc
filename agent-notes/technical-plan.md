@@ -194,7 +194,7 @@ Deferred (from the spec): rich node content, templates, search, Markdown/PDF exp
 
 ## Manuscript milestones (M12–M15)
 
-Planned 2026-11-11 for the "Manuscript authoring" and "Spanning nodes" sections of [product-spec.md](product-spec.md). Status: approved 2026-11-11 (all four milestones). Each milestone ends with a buildable APK, passing `./gradlew test`, and one commit.
+Planned 2026-11-11 for the "Manuscript authoring" and "Spanning nodes" sections of [product-spec.md](product-spec.md). Status: approved and done 2026-11-11 (all four milestones). Each milestone ends with a buildable APK, passing `./gradlew test`, and one commit.
 
 ### M12 — Spanning nodes and schema v3
 Done 2026-11-11. Rules as built (see the comment above `Drop` in `BoardOps.kt`): a drop onto any covered slot pushes the spanning node; a Between drop inside a span on its own timeline snaps to the nearer edge; columns inserted inside a span on another timeline widen it; a marker inserted inside a span cuts it short. The resize gesture reuses the drag session (`DragTarget.Span`), so it needs no long press and gets auto-scroll.
@@ -262,6 +262,11 @@ Done 2026-11-11. As built:
   - An ODT generated from a fixture is converted to PDF with the local LibreOffice (`soffice --headless --convert-to pdf`) as a manual check. The user then confirms the result on the tablet.
 
 ### M15 — Bold and italic
+Done 2026-11-11. As built:
+- `RichProse` wraps a `TextFieldState`.
+  - Its `InputTransformation` reads the buffer's exact change list and moves style ranges with `StyledText.edit`. Replacing text keeps the style of the first replaced character; inserting continues the style of the character before. A B/I toggle at a collapsed cursor overrides this for the next text typed there.
+  - Its `OutputTransformation` draws the styles with `addStyle`, and re-runs when `styles` changes.
+- `TextFieldState`'s own undo is not used, because it would restore text without styles. `RichProse` keeps snapshots of text, styles and selection; typing within 1 s coalesces. Ctrl+Z/Y are intercepted in `onPreviewKeyEvent`.
 - **Style model:** `styles` is a JSON list of `(start, end, bold|italic)` ranges over `body`. A pure Kotlin `StyledText` keeps ranges consistent through inserts and deletes: a range grows when text is typed at its end while that style is active, and ranges merge and split as text changes. It is fully unit-tested.
 - **Editor:**
   - The view uses `BasicTextField` on `TextFieldState`; styles are applied through an `OutputTransformation` or annotated rendering. This choice is made at implementation time after a spike, and the result recorded in agent-notes.

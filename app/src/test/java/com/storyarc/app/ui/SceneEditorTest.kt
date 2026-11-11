@@ -8,6 +8,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextInputSelection
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.click
@@ -102,5 +103,25 @@ class SceneEditorTest {
         compose.onRoot().performTouchInput { click(androidx.compose.ui.geometry.Offset(b.left - 36f + 396f + 198f, b.top + 40f)) }
         compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("prose")).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(true, exists("Untitled scene"))
+    }
+
+    @Test
+    fun boldIsSavedAndAssembled() {
+        open()
+        compose.onNode(hasText("Arrival")).performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("prose")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("prose").performTextInput("It was dark.")
+        compose.onNodeWithTag("prose").performTextInputSelection(androidx.compose.ui.text.TextRange(7, 11))
+        compose.onNode(hasContentDescription("Bold")).performClick()
+        compose.onNode(hasContentDescription("Close scene")).performClick()
+        eventually {
+            val row = runBlocking { repo.sceneText(scene) }
+            assertEquals(
+                listOf(com.storyarc.app.domain.manuscript.StyleRange(7, 11, com.storyarc.app.domain.manuscript.Style.BOLD)),
+                com.storyarc.app.domain.manuscript.StyleCodec.decode(row?.styles),
+            )
+        }
+        val m = runBlocking { repo.manuscript(view, null) }
+        assertEquals("dark", m.chapters.single().let { it.body.substring(it.styles.single().start, it.styles.single().end) })
     }
 }

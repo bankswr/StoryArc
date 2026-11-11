@@ -122,6 +122,13 @@ class BoardScreenshotTest {
             "The harbour bells rang twice before dawn, and Mara was already at the rail.\n\n" +
                 "She had packed in the dark: two shirts, the letter, the knife her father had never asked to have back. " +
                 "Below, the dock lamps guttered in the wind coming off the water.",
+            // "twice" in bold, "the letter" in italics.
+            com.storyarc.app.domain.manuscript.StyleCodec.encode(
+                listOf(
+                    com.storyarc.app.domain.manuscript.StyleRange(23, 28, com.storyarc.app.domain.manuscript.Style.BOLD),
+                    com.storyarc.app.domain.manuscript.StyleRange(117, 127, com.storyarc.app.domain.manuscript.Style.ITALIC),
+                ),
+            ),
         )
         compose.activity.setContent { StoryArcTheme { BoardScreen(p, v, onBack = {}, onTimelines = {}) } }
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Act I: Departure")).fetchSemanticsNodes().isNotEmpty() }

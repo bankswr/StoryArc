@@ -69,7 +69,8 @@ class AssembleTest {
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("Two")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasContentDescription("Assemble manuscript")).performClick()
         compose.waitUntil(5_000) { compose.onAllNodes(hasText("2 chapters", substring = true)).fetchSemanticsNodes().isNotEmpty() }
-        compose.waitUntil(5_000) {
+        // Enabled once the project name has loaded (a Room read), which can be slow on a busy test machine.
+        compose.waitUntil(15_000) {
             compose.onAllNodes(hasText("Save .odt") and androidx.compose.ui.test.isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNode(hasText("Save .odt")).performClick()

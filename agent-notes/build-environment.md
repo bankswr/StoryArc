@@ -33,6 +33,8 @@ How to build StoryArc on this machine, and the toolchain constraints behind the 
 - Board writes go Room (background) → main looper, so assert with retries (`BoardDragTest.eventually`), not right after `waitForIdle()`.
 - A `withFrameNanos` loop that keeps running prevents Compose from going idle, and test synchronisation then times out. Run frame loops only while they're doing work (e.g. auto-scroll only near an edge that can scroll).
 - Dialogs use `AppAlertDialog` (`ui/common/Common.kt`), which sets `usePlatformDefaultWidth = false`. With the platform default width, a landscape dialog's window and content re-measured each other between two widths forever, and the app never went idle under Robolectric. Diagnose "Compose did not get idle" by sampling the `SDK 35 Main Thread` with `jstack`: repeated measure/text-layout frames with no recomposition point to a layout loop.
+- Don't call `runBlocking` on a `ViewModel` flow in a Robolectric test. The test thread is the main thread, so work on `viewModelScope` (main dispatcher) never runs and the test hangs until Gradle times out. Test the repository function instead. That is why `StoryRepository.manuscript` exists.
+- `testReleaseUnitTest` runs too, and `ui-test-manifest` is a debug-only dependency. In release, `createAndroidComposeRule<ComponentActivity>()` fails with "Unable to resolve activity", so use `createAndroidComposeRule<MainActivity>()` with `activity.setContent { }`.
 - Navigate only on the main thread. After a Room suspend call, a coroutine can resume on a Room thread in tests, so wrap navigation in `withContext(Dispatchers.Main)`.
 
 ## Build outputs

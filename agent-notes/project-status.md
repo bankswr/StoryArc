@@ -23,6 +23,7 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 | M12 (2026-11-11) | Spanning nodes: `BoardState.spans`, `resize`, drag handle on a card's trailing edge, Widen/Narrow TalkBack actions (`BoardSpanTest`, fuzz resizes, `BoardDragTest`). DB schema v3 (span columns, `timeline.isScenes`, `scene_text`), backup format 3 (formats 1–2 still restore). |
 | M13 (2026-11-11) | Scenes timeline (switch in the timeline sheet; header shows manuscript words/pages) and the full-screen scene editor (`SceneEditor.kt`): card name, prose, live stats, same-time / world library / tags panels, side pane at ≥ 840 dp. Words-per-page setting. (`SceneRepositoryTest`, `SceneEditorTest`, `StatsTest`, screenshots.) |
 | M14 (2026-11-11) | Assemble: button in the scenes timeline header (also in its sheet and TalkBack actions) → dialog (paper size, optional author) → `.odt` via the system picker. `domain/manuscript/` holds `Assembler`, `OdtWriter` (hand-built ODF zip), `PaperSize`. Paper size and last author name in Settings/DataStore. (`OdtWriterTest`, `AssembleTest`; samples checked by converting with local LibreOffice.) |
+| M15 (2026-11-11) | Bold and italic in the scene editor (B/I buttons, Ctrl+B/I) and in the exported `.odt`. `StyledText` (pure range logic, fuzz-tested against a per-character model) plus `RichProse` (editor glue and its own undo). App version 0.2.0 (2). (`StyledTextTest`, `RichProseTest`, `SceneEditorTest`.) |
 
 ## How it's verified
 
@@ -42,4 +43,9 @@ All milestones from [technical-plan.md](technical-plan.md) are done, one commit 
 - **Drag preview:** columns inserted by the preview still shift content to the right of the finger. Only the source column is held in place.
 - **Group bars:** they are grabbed in a 16dp strip at the bottom of each row. This may be a small touch target on a real phone.
 - **Deferred (from the spec):** rich node content, templates, search, Markdown/PDF export, tablet layouts.
+- **Manuscript, unverified on device (2026-11-11):**
+  - The scene editor's keyboard behaviour (IME composition with bold or italic on, autocorrect replacing styled words, hardware-keyboard shortcuts).
+  - The resize handle's feel.
+  - Opening exported `.odt` files in the user's word processor.
+- **Editor undo:** the typing undo history in the scene editor doesn't survive rotation (text and styles do). Only the board's per-session undo step persists while the app runs.
 - **Toolchain:** pinned to AGP 8.13 / compileSdk 36. Newer AndroidX releases need AGP 9 (see build-environment.md).

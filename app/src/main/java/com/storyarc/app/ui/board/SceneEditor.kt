@@ -22,8 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -32,6 +30,17 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatItalic
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import com.storyarc.app.domain.manuscript.Style
+import com.storyarc.app.domain.manuscript.StyleCodec
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Schedule
@@ -110,33 +119,34 @@ fun SceneEditor(
     var loaded by rememberSaveable(nodeId) { mutableStateOf(false) }
     var beforeBody by rememberSaveable(nodeId) { mutableStateOf<String?>(null) }
     var beforeStyles by rememberSaveable(nodeId) { mutableStateOf("[]") }
-    val prose = rememberTextFieldState()
+    val prose = rememberSaveable(nodeId, saver = RichProse.Saver) { RichProse(TextFieldState()) }
     LaunchedEffect(nodeId) {
         if (loaded) return@LaunchedEffect
         val row = vm.sceneText(nodeId)
         beforeBody = row?.body
         beforeStyles = row?.styles ?: "[]"
-        prose.setTextAndPlaceCursorAtEnd(row?.body.orEmpty())
-        prose.undoState.clearHistory()
+        prose.load(row?.body.orEmpty(), StyleCodec.decode(row?.styles))
         vm.breakCoalescing()
         loaded = true
     }
-    // Autosave shortly after typing pauses.
+    fun save() = vm.saveSceneDraft(nodeId, prose.state.text.toString(), StyleCodec.encode(prose.styles))
+    // Undo points as the text or styles change; autosave shortly after a pause.
     LaunchedEffect(nodeId, loaded) {
         if (!loaded) return@LaunchedEffect
-        snapshotFlow { prose.text.toString() }.drop(1).collectLatest {
+        snapshotFlow { prose.state.text.toString() to prose.styles }.drop(1).collectLatest {
+            prose.record()
             delay(500)
-            vm.saveSceneDraft(nodeId, it)
+            save()
         }
     }
     val isLoaded by rememberUpdatedState(loaded)
     DisposableEffect(nodeId) {
         // Leaving composition for any reason (including rotation) saves what is typed.
-        onDispose { if (isLoaded) vm.saveSceneDraft(nodeId, prose.text.toString()) }
+        onDispose { if (isLoaded) save() }
     }
     fun finish() {
         if (loaded) {
-            vm.saveSceneDraft(nodeId, prose.text.toString())
+            save()
             vm.finishSceneEdit(nodeId, beforeBody?.let { vm.sceneRow(nodeId, it, beforeStyles) })
         }
     }
@@ -147,7 +157,7 @@ fun SceneEditor(
     var openNote by rememberSaveable { mutableStateOf<String?>(null) }
     var more by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    val words by remember { derivedStateOf { Stats.words(prose.text) } }
+    val words by remember { derivedStateOf { Stats.words(prose.state.text) } }
 
     Scaffold(
         modifier = Modifier.imePadding(),
@@ -162,10 +172,10 @@ fun SceneEditor(
                 },
                 navigationIcon = { IconButton(onClick = ::close) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close scene") } },
                 actions = {
-                    IconButton(onClick = { prose.undoState.undo() }, enabled = prose.undoState.canUndo) {
+                    IconButton(onClick = { prose.undo() }, enabled = prose.canUndo) {
                         Icon(Icons.AutoMirrored.Filled.Undo, "Undo typing")
                     }
-                    IconButton(onClick = { prose.undoState.redo() }, enabled = prose.undoState.canRedo) {
+                    IconButton(onClick = { prose.redo() }, enabled = prose.canRedo) {
                         Icon(Icons.AutoMirrored.Filled.Redo, "Redo typing")
                     }
                     PanelToggle(panel, ScenePanel.SameTime, Icons.Default.Schedule, "At the same time") { panel = it }
@@ -184,7 +194,12 @@ fun SceneEditor(
                 },
             )
         },
-        bottomBar = { StatsBar(ui, nodeId, words, wordsPerPage) },
+        bottomBar = {
+            Column {
+                FormatBar(prose)
+                StatsBar(ui, nodeId, words, wordsPerPage)
+            }
+        },
     ) { padding ->
         BoxWithConstraints(Modifier.fillMaxSize().padding(padding)) {
             val wide = maxWidth >= SidePaneMinWidth
@@ -241,13 +256,44 @@ private fun CardNameField(vm: BoardViewModel, nodeId: String, initial: String) {
     )
 }
 
-/** The manuscript text area. */
+/** Bold and italic toggles for the selection, or for what is typed next. */
 @Composable
-fun ProseField(state: TextFieldState, modifier: Modifier = Modifier) {
+private fun FormatBar(prose: RichProse) {
+    Surface(tonalElevation = 1.dp) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconToggleButton(prose.isActive(Style.BOLD), { prose.toggle(Style.BOLD) }) { Icon(Icons.Default.FormatBold, "Bold") }
+            IconToggleButton(prose.isActive(Style.ITALIC), { prose.toggle(Style.ITALIC) }) { Icon(Icons.Default.FormatItalic, "Italic") }
+        }
+    }
+}
+
+/**
+ * The manuscript text area. Ctrl+B and Ctrl+I toggle styles; Ctrl+Z and Ctrl+Shift+Z / Ctrl+Y
+ * go through [RichProse]'s undo so styles stay in step with the text.
+ */
+@Composable
+fun ProseField(prose: RichProse, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
+    val state = prose.state
     BasicTextField(
         state = state,
-        modifier = modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).testTag("prose"),
+        inputTransformation = prose.input,
+        outputTransformation = prose.output,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .testTag("prose")
+            .onPreviewKeyEvent { e ->
+                if (e.type != KeyEventType.KeyDown || !e.isCtrlPressed) return@onPreviewKeyEvent false
+                when (e.key) {
+                    Key.B -> prose.toggle(Style.BOLD)
+                    Key.I -> prose.toggle(Style.ITALIC)
+                    Key.Z -> if (e.isShiftPressed) prose.redo() else prose.undo()
+                    Key.Y -> prose.redo()
+                    else -> return@onPreviewKeyEvent false
+                }
+                true
+            },
         textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = FontFamily.Serif, fontSize = 18.sp, lineHeight = 30.sp, color = colors.onSurface),
         cursorBrush = SolidColor(colors.primary),
         lineLimits = TextFieldLineLimits.MultiLine(),
